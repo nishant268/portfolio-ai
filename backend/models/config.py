@@ -50,12 +50,43 @@ class AppConfig(BaseModel):
 
 
 def load_config() -> AppConfig:
+    cfg: AppConfig
     if _CONFIG_PATH.exists():
         try:
-            return AppConfig.model_validate_json(_CONFIG_PATH.read_text())
+            cfg = AppConfig.model_validate_json(_CONFIG_PATH.read_text())
         except Exception:
-            pass
-    return AppConfig()
+            cfg = AppConfig()
+    else:
+        cfg = AppConfig()
+
+    # Override with environment variables — works on Render where config
+    # file may not persist across restarts (no persistent disk on free tier)
+    if not cfg.zerodha.api_key:
+        cfg.zerodha.api_key    = _os.environ.get("ZERODHA_API_KEY", "")
+    if not cfg.zerodha.api_secret:
+        cfg.zerodha.api_secret = _os.environ.get("ZERODHA_API_SECRET", "")
+    if not cfg.zerodha.access_token:
+        cfg.zerodha.access_token = _os.environ.get("ZERODHA_ACCESS_TOKEN", "")
+    if not cfg.llm_api_key:
+        cfg.llm_api_key = (
+            _os.environ.get("ANTHROPIC_API_KEY")
+            or _os.environ.get("GOOGLE_API_KEY")
+            or _os.environ.get("OPENAI_API_KEY")
+            or ""
+        )
+    if not cfg.llm_provider or cfg.llm_provider == "openai":
+        if _os.environ.get("ANTHROPIC_API_KEY"):
+            cfg.llm_provider = "anthropic"
+            cfg.llm_model = cfg.llm_model or "claude-haiku-4-5-20251001"
+        elif _os.environ.get("GOOGLE_API_KEY"):
+            cfg.llm_provider = "google"
+            cfg.llm_model = cfg.llm_model or "gemini-2.0-flash-lite"
+
+    # Mark configured if Zerodha credentials are present from any source
+    if cfg.zerodha.api_key and cfg.zerodha.access_token:
+        cfg.configured = True
+
+    return cfg
 
 
 def save_config(cfg: AppConfig) -> None:
