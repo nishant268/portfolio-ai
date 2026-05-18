@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --bg-primary: #08080f;
+  --bg-card: #0f0f1a;
+  --bg-card-hover: #141426;
+  --border: #1e1e35;
+  --border-bright: #2a2a4a;
+  --green: #00d97e;
+  --green-dim: rgba(0,217,126,0.1);
+  --red: #ff3d57;
+  --red-dim: rgba(255,61,87,0.1);
+  --yellow: #f59e0b;
+  --blue: #3b82f6;
+  --purple: #8b5cf6;
+  --text: #e2e8f0;
+  --text-muted: #64748b;
+}
+
+* { box-sizing: border-box; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--border-bright); }
+
+.glass {
+  background: rgba(15,15,26,0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.positive { color: var(--green); }
+.negative { color: var(--red); }
+
+.badge-sell { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,61,87,0.3); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+.badge-buy { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,217,126,0.3); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+.badge-hold { background: rgba(245,158,11,0.1); color: var(--yellow); border: 1px solid rgba(245,158,11,0.3); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+
+.gradient-text {
+  background: linear-gradient(135deg, #00d97e, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@keyframes pulse-green { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.pulse-green { animation: pulse-green 2s ease-in-out infinite; }
+
+@keyframes slide-up { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+.slide-up { animation: slide-up 0.25s ease-out; }
