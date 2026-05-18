@@ -1,50 +1,27 @@
-##############################################################################
-# Portfolio AI — Render.com Deployment
-#
-# Services:
-#   1. portfolio-ai-backend  (Python/FastAPI)  — auto-trader runs here 24/7
-#   2. portfolio-ai-frontend (Node/Next.js)    — accessible from phone
-#
-# Setup instructions:
-#   1. Push this repo to GitHub
-#   2. Go to render.com → New → Blueprint → connect your repo
-#   3. Set the secret environment variables in the Render dashboard:
-#        ANTHROPIC_API_KEY   (or GOOGLE_API_KEY / OPENAI_API_KEY)
-#        ZERODHA_API_KEY, ZERODHA_API_SECRET, ZERODHA_ACCESS_TOKEN
-#   4. Deploy — backend URL appears first, copy it
-#   5. Set NEXT_PUBLIC_API_URL = <backend URL> in the frontend service env vars
-#   6. Redeploy frontend → you get a public phone-accessible link
-##############################################################################
-
 services:
 
-  # ── Backend: FastAPI + auto-trader scheduler ─────────────────────────────────
+  # ── Backend: FastAPI + auto-trader ───────────────────────────────────────────
   - type: web
     name: portfolio-ai-backend
-    runtime: docker           # uses the Dockerfile in repo root
+    runtime: python
     plan: free
-    dockerContext: .
-    dockerfilePath: ./Dockerfile
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
 
     envVars:
-      # Data persistence — SQLite lives on the disk below
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: DATA_DIR
         value: /data
-
-      # Frontend URL for CORS (set after frontend is deployed)
       - key: FRONTEND_URL
-        sync: false           # fill in Render dashboard
-
-      # LLM — set ONE of these in Render dashboard
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: GOOGLE_API_KEY
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-
-      # Zerodha (set in Render dashboard, access token refreshed daily)
       - key: ZERODHA_API_KEY
         sync: false
       - key: ZERODHA_API_SECRET
@@ -52,13 +29,12 @@ services:
       - key: ZERODHA_ACCESS_TOKEN
         sync: false
 
-    # Persistent disk — SQLite databases survive redeploys
     disk:
       name: portfolio-ai-data
       mountPath: /data
       sizeGB: 1
 
-  # ── Frontend: Next.js (phone accessible) ─────────────────────────────────────
+  # ── Frontend: Next.js ─────────────────────────────────────────────────────────
   - type: web
     name: portfolio-ai-frontend
     runtime: node
@@ -73,12 +49,7 @@ services:
         value: 20.18.0
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
       - key: HOSTNAME
         value: 0.0.0.0
-
-      # IMPORTANT: Set this to your backend Render URL after first deploy
-      # Example: https://portfolio-ai-backend.onrender.com
       - key: NEXT_PUBLIC_API_URL
         sync: false
