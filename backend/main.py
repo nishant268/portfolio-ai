@@ -88,6 +88,7 @@ app.include_router(paper_router)
 app.include_router(agent_stream_router)
 
 
+@app.get("/")
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "portfolio-ai"}
