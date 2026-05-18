@@ -1,21 +1,19 @@
 services:
 
-  # ── Backend: FastAPI + auto-trader ───────────────────────────────────────────
+  # ── Backend: FastAPI (Docker) ─────────────────────────────────────────────────
   - type: web
     name: portfolio-ai-backend
-    runtime: python
+    runtime: docker
     plan: free
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health
 
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
       - key: DATA_DIR
         value: /data
       - key: FRONTEND_URL
-        sync: false
+        value: https://portfolio-ai-frontend.onrender.com
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: GOOGLE_API_KEY
@@ -34,23 +32,15 @@ services:
       mountPath: /data
       sizeGB: 1
 
-  # ── Frontend: Next.js ─────────────────────────────────────────────────────────
+  # ── Frontend: Next.js (Docker) ────────────────────────────────────────────────
   - type: web
     name: portfolio-ai-frontend
-    runtime: node
+    runtime: docker
     plan: free
-    rootDir: frontend
-    buildCommand: npm ci && npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public
-    startCommand: node .next/standalone/server.js
+    dockerContext: ./frontend
+    dockerfilePath: ./frontend/Dockerfile
     healthCheckPath: /
 
     envVars:
-      - key: NODE_VERSION
-        value: 20.18.0
-      - key: NODE_ENV
-        value: production
-      - key: HOSTNAME
-        value: 0.0.0.0
-      # Pre-set backend URL — predictable from service name, no manual step needed
       - key: NEXT_PUBLIC_API_URL
         value: https://portfolio-ai-backend.onrender.com
