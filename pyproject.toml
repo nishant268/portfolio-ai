@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "portfolio-ai"
+version = "0.1.0"
+description = "AI-powered portfolio evaluator and sell-order engine built on TradingAgents"
+requires-python = ">=3.11"
+dependencies = [
+    # Core agent framework (TradingAgents base)
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+
+    # Data & analysis
+    "yfinance>=0.2.40",
+    "pandas>=2.0.0",
+    "numpy>=1.26.0",
+    "ta>=0.11.0",              # Technical indicators (RSI, MACD, Bollinger)
+    "stocknews>=0.7.0",
+
+    # Broker APIs
+    "alpaca-py>=0.30.0",       # Alpaca (US stocks & crypto)
+    "kiteconnect>=5.0.0",      # Zerodha (India)
+
+    # Web & API
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.9.0",
+    "python-dotenv>=1.0.0",
+
+    # Storage
+    "sqlmodel>=0.0.22",
+    "aiosqlite>=0.20.0",
+
+    # CLI & display
+    "rich>=13.0.0",
+    "typer>=0.12.0",
+
+    # News scraping
+    "feedparser>=6.0.0",
+
+    # WebSockets for live data
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.7.0",
+    "mypy>=1.13.0",
+]
+
+[project.scripts]
+portfolio-ai = "portfolio_ai.cli:app"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

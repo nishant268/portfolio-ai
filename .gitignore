@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+dist/
+*.egg-info/
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Local data (never commit real keys or trade data)
+.portfolio_config.json
+chat.db
+paper_trade.db
+*.db
+
+# Environment
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
