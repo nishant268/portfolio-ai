@@ -51,5 +51,6 @@ services:
         value: production
       - key: HOSTNAME
         value: 0.0.0.0
+      # Pre-set backend URL — predictable from service name, no manual step needed
       - key: NEXT_PUBLIC_API_URL
-        sync: false
+        value: https://portfolio-ai-backend.onrender.com
