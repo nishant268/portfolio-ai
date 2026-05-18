@@ -52,11 +52,29 @@ init_paper_db()   # create paper_trade.db tables
 
 @app.on_event("startup")
 async def startup():
-    """Auto-start the paper trading scheduler on server start."""
+    """Auto-start the paper trading scheduler and keep-alive pinger on server start."""
     from backend.models.config import load_config
     cfg = load_config()
     mode = cfg.mode if hasattr(cfg, "mode") else "investor"
     auto_trader_mod.start(mode=mode, interval=60)
+
+    # ── Self-ping heartbeat (keeps Render free tier awake) ────────────────────
+    # Render provides RENDER_EXTERNAL_URL only when deployed on Render.
+    # Locally this env var is absent, so the pinger never starts in dev.
+    render_url = _os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if render_url:
+        async def _keep_alive():
+            import httpx
+            ping_url = f"{render_url}/health"
+            while True:
+                await asyncio.sleep(4 * 60)   # ping every 4 min (threshold is 15 min)
+                try:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        await client.get(ping_url)
+                except Exception:
+                    pass   # silent — never crash the server over a missed ping
+
+        asyncio.create_task(_keep_alive())
 
 app.include_router(market_router)
 app.include_router(news_router)
