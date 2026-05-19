@@ -38,7 +38,7 @@ class NSEScraper:
         import time
         for attempt in range(3):
             try:
-                session = cf_requests.Session(impersonate="chrome130")
+                session = cf_requests.Session(impersonate="chrome124")
                 session.get(_NSE, timeout=20)                          # prime homepage cookies
                 time.sleep(1.5)
                 session.get(f"{_NSE}/option-chain", timeout=20)        # prime option-chain cookies

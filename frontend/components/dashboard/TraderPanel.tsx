@@ -40,10 +40,23 @@ function OptionChainCard({ symbol }: { symbol: string }) {
     <div className="card p-4">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="font-semibold text-sm text-[#e2e8f0]">{symbol} Options Chain</h3>
-          {data && <div className="text-xs text-[#64748b]">Underlying ₹{fmt(data.underlying)}</div>}
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-sm text-[#e2e8f0]">{symbol} Options Chain</h3>
+            {data?.is_theoretical && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[rgba(245,158,11,0.15)] text-[#f59e0b] border border-[rgba(245,158,11,0.3)]">
+                THEORETICAL · B-S
+              </span>
+            )}
+          </div>
+          {data && (
+            <div className="text-xs text-[#64748b] flex items-center gap-2">
+              <span>Underlying ₹{fmt(data.underlying)}</span>
+              {data.vix ? <span>· VIX {data.vix}</span> : null}
+              {data.dte !== undefined ? <span>· {data.dte}d to expiry</span> : null}
+            </div>
+          )}
         </div>
-        <button onClick={load} className="p-1.5 hover:bg-[#1e1e35] rounded-lg transition-colors">
+        <button onClick={() => load()} className="p-1.5 hover:bg-[#1e1e35] rounded-lg transition-colors">
           <RefreshCw size={13} className={`text-[#64748b] ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
@@ -107,7 +120,7 @@ function OptionChainCard({ symbol }: { symbol: string }) {
         <div className="text-center text-[#475569] text-xs py-6">Loading options chain…</div>
       )}
 
-      {!loading && data && !data.total_ce_oi && !data.total_pe_oi && (
+      {!loading && data && !data.top_strikes?.length && (
         <div className="flex items-center gap-2 text-xs text-[#64748b] bg-[#08080f] border border-[#1e1e35] rounded-xl p-4">
           <AlertCircle size={14} className="shrink-0 text-[#f59e0b]" />
           <div className="flex-1">

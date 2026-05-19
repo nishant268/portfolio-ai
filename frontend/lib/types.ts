@@ -149,6 +149,9 @@ export interface OptionChain {
   total_ce_oi: number;
   total_pe_oi: number;
   top_strikes: OptionStrike[];
+  is_theoretical?: boolean;
+  vix?: number;
+  dte?: number;
 }
 
 export interface FutureContract {
