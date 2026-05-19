@@ -14,9 +14,13 @@ function OptionChainCard({ symbol }: { symbol: string }) {
 
   async function load() {
     setLoading(true); setError('');
-    try { setData(await foApi.optionChain(symbol)); }
-    catch (e: unknown) { setError('Failed to load options data'); }
-    finally { setLoading(false); }
+    try {
+      const d = await foApi.optionChain(symbol);
+      setData(d);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(msg ?? 'NSE data unavailable — retrying next refresh');
+    } finally { setLoading(false); }
   }
 
   useEffect(() => { load(); }, [symbol]);
@@ -99,9 +103,12 @@ function OptionChainCard({ symbol }: { symbol: string }) {
       {!loading && data && !data.total_ce_oi && !data.total_pe_oi && (
         <div className="flex items-center gap-2 text-xs text-[#64748b] bg-[#08080f] border border-[#1e1e35] rounded-xl p-4">
           <AlertCircle size={14} className="shrink-0 text-[#f59e0b]" />
-          <div>
-            <div className="font-semibold text-[#f59e0b]">Market Closed</div>
-            <div className="text-[#475569] mt-0.5">Options chain data is available only during market hours: <span className="text-[#94a3b8]">Mon–Fri, 9:15 AM – 3:30 PM IST</span></div>
+          <div className="flex-1">
+            <div className="font-semibold text-[#f59e0b]">No Live Data</div>
+            <div className="text-[#475569] mt-0.5">
+              Options data is live during market hours (Mon–Fri, 9:15 AM – 3:30 PM IST).
+              Outside hours NSE may return empty OI — <button onClick={load} className="text-[#8b5cf6] underline hover:text-[#a78bfa]">refresh</button> to retry.
+            </div>
           </div>
         </div>
       )}

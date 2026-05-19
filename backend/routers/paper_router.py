@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -26,14 +27,21 @@ async def get_portfolio(mode: str):
     snaps = get_snapshots(p.id)
     trades = get_trades(p.id)
 
-    # Enrich positions with live prices
-    # Falls back to avg_entry_price when market is closed (avoids showing ₹0)
+    # Enrich positions with live prices — fetch all concurrently (non-blocking)
     from backend.agents.paper_trader import _get_live_price
+    loop = asyncio.get_event_loop()
+
+    async def _fetch_price(pos):
+        try:
+            price = await loop.run_in_executor(None, _get_live_price, pos.ticker)
+        except Exception:
+            price = 0.0
+        return price if price > 0 else pos.avg_entry_price  # fallback to entry when market closed
+
+    live_prices = await asyncio.gather(*[_fetch_price(p) for p in positions])
+
     enriched = []
-    for pos in positions:
-        live = _get_live_price(pos.ticker)
-        if live <= 0:
-            live = pos.avg_entry_price   # market closed — use entry price (flat P&L)
+    for pos, live in zip(positions, live_prices):
         cost = pos.avg_entry_price * pos.quantity
         mv = live * pos.quantity
         pnl = (mv - cost) if pos.direction == "long" else (cost - mv)
@@ -109,7 +117,7 @@ async def get_all_analyses(mode: str):
 
 
 @router.get("/trades/{mode}")
-async def get_trade_history(mode: str, limit: int = 50):
+async def get_trade_history(mode: str, limit: int = 500):
     p = get_active_portfolio(mode)
     if not p:
         return {"trades": []}

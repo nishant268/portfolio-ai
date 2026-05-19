@@ -323,7 +323,7 @@ export default function PaperTradingPage() {
     try {
       const [pRes, tRes] = await Promise.all([
         http.get(`/api/paper/portfolio/${mode}`),
-        http.get(`/api/paper/trades/${mode}?limit=50`),
+        http.get(`/api/paper/trades/${mode}?limit=500`),
       ]);
       setData(pRes.data);
       setTrades(tRes.data.trades ?? []);

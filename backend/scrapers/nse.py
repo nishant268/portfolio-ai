@@ -13,8 +13,15 @@ from curl_cffi import requests as cf_requests
 _NSE = "https://www.nseindia.com"
 _API_HEADERS = {
     "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Referer": "https://www.nseindia.com/",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Origin": "https://www.nseindia.com",
+    "Referer": "https://www.nseindia.com/option-chain",
     "X-Requested-With": "XMLHttpRequest",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+    "Connection": "keep-alive",
 }
 
 
@@ -24,8 +31,11 @@ class NSEScraper:
         self._lock = asyncio.Lock()
 
     def _make_session(self) -> cf_requests.Session:
+        import time
         session = cf_requests.Session(impersonate="chrome124")
-        session.get(_NSE, timeout=20)          # prime cookies
+        session.get(_NSE, timeout=20)                              # prime homepage cookies
+        time.sleep(1)
+        session.get(f"{_NSE}/option-chain", timeout=20)            # prime option-chain cookies
         return session
 
     def _ensure_session(self) -> cf_requests.Session:

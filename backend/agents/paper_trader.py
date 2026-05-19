@@ -479,7 +479,13 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
 
     # ── Step 6: Daily snapshot ────────────────────────────────────────────────
     final_positions = get_positions(portfolio.id)
-    positions_value = sum(_get_live_price(p.ticker) * p.quantity for p in final_positions)
+
+    async def _fetch_pos_value(p) -> float:
+        price = await loop.run_in_executor(None, _get_live_price, p.ticker)
+        return (price if price > 0 else p.avg_entry_price) * p.quantity
+
+    pos_values = await asyncio.gather(*[_fetch_pos_value(p) for p in final_positions])
+    positions_value = sum(pos_values)
     total_value = portfolio.cash + positions_value
     total_pnl = total_value - portfolio.initial_capital
     total_pnl_pct = (total_pnl / portfolio.initial_capital) * 100

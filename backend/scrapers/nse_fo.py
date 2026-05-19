@@ -24,18 +24,35 @@ async def option_chain(symbol: str) -> dict[str, Any]:
 
     records = raw.get("records", {})
     filtered = raw.get("filtered", {})
-    strikes = records.get("data", [])
+    all_strikes = records.get("data", [])
     underlying = records.get("underlyingValue", 0)
+    expiry_dates = records.get("expiryDates", [])
+
+    # Use nearest-expiry strikes only for max pain + OI totals
+    nearest_expiry = expiry_dates[0] if expiry_dates else None
+    strikes = (
+        [s for s in all_strikes if s.get("expiryDate") == nearest_expiry]
+        if nearest_expiry else all_strikes
+    )
+    # Fall back to all strikes if filter yields nothing
+    if not strikes:
+        strikes = all_strikes
 
     # Summarise into a compact structure
     ce_oi = filtered.get("CE", {}).get("totOI", 0)
     pe_oi = filtered.get("PE", {}).get("totOI", 0)
+
+    # Fallback: compute OI from raw strike data when filtered section is empty
+    if not ce_oi and not pe_oi and strikes:
+        ce_oi = sum(s.get("CE", {}).get("openInterest", 0) for s in strikes)
+        pe_oi = sum(s.get("PE", {}).get("openInterest", 0) for s in strikes)
+
     pcr = round(pe_oi / ce_oi, 2) if ce_oi else 0
 
-    # Max pain: strike with minimum total loss for option writers
+    # Max pain: strike with minimum total loss for option writers (nearest expiry only)
     max_pain_strike = _max_pain(strikes)
 
-    # Top 5 strikes by CE + PE OI
+    # Top 10 strikes by CE + PE OI
     top = sorted(
         strikes,
         key=lambda x: (x.get("CE", {}).get("openInterest", 0) + x.get("PE", {}).get("openInterest", 0)),
@@ -45,7 +62,7 @@ async def option_chain(symbol: str) -> dict[str, Any]:
     return {
         "symbol": symbol.upper(),
         "underlying": underlying,
-        "expiry": records.get("expiryDates", [])[:3],
+        "expiry": expiry_dates[:3],
         "pcr": pcr,
         "max_pain": max_pain_strike,
         "total_ce_oi": ce_oi,
