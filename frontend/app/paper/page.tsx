@@ -316,7 +316,10 @@ export default function PaperTradingPage() {
   const [trades, setTrades] = useState<Record<string, unknown>[]>([]);
   const [atStatus, setAtStatus] = useState<Record<string, unknown>>({ running: true, status: 'starting', next_run_in: 60, market_open: false });
   const [loading, setLoading] = useState(false);
+  const [sessionRunning, setSessionRunning] = useState(false);
+  const [sessionMsg, setSessionMsg] = useState('');
   const wsRef = useRef<WebSocket | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -351,6 +354,40 @@ export default function PaperTradingPage() {
     };
     return () => ws.close();
   }, [load]);
+
+  async function runSession() {
+    if (sessionRunning) return;
+    setSessionRunning(true);
+    setSessionMsg('Starting session…');
+    try {
+      await http.post(`/api/paper/run/${mode}`);
+      setSessionMsg('Analysing stocks & executing trades…');
+      // Poll session-status every 3s until done or error
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
+        try {
+          const r = await http.get(`/api/paper/session-status/${mode}`);
+          const st = r.data.status as string;
+          if (st === 'done') {
+            setSessionMsg(`✓ Session complete — ${r.data.trades_count ?? 0} trade(s) executed`);
+            setSessionRunning(false);
+            if (pollRef.current) clearInterval(pollRef.current);
+            await load();
+          } else if (st === 'error') {
+            setSessionMsg(`✗ ${r.data.error ?? 'Session failed'}`);
+            setSessionRunning(false);
+            if (pollRef.current) clearInterval(pollRef.current);
+          } else {
+            setSessionMsg('Analysing stocks & executing trades…');
+          }
+        } catch { /* silent */ }
+      }, 3000);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setSessionMsg(msg ?? 'Failed to start session');
+      setSessionRunning(false);
+    }
+  }
 
   async function reset() {
     if (!confirm(`Reset ${mode} paper portfolio? All trades will be cleared.`)) return;
@@ -430,6 +467,16 @@ export default function PaperTradingPage() {
                   }`}>{m}</button>
               ))}
             </div>
+            <button
+              onClick={runSession}
+              disabled={sessionRunning}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[rgba(0,217,126,0.1)] text-[#00d97e] border border-[rgba(0,217,126,0.3)] hover:bg-[rgba(0,217,126,0.18)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {sessionRunning
+                ? <><Loader2 size={11} className="animate-spin" /> Running…</>
+                : <><Zap size={11} /> Run Session Now</>
+              }
+            </button>
             <button onClick={reset}
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-[#64748b] border border-[#1e1e35] hover:border-[#2a2a4a]">
               <RotateCcw size={11} /> Reset
@@ -439,6 +486,23 @@ export default function PaperTradingPage() {
       </header>
 
       <main className="max-w-screen-2xl mx-auto px-4 py-4 space-y-4">
+
+        {/* Session status bar */}
+        {sessionMsg && (
+          <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium border ${
+            sessionMsg.startsWith('✓')
+              ? 'bg-[rgba(0,217,126,0.06)] border-[rgba(0,217,126,0.2)] text-[#00d97e]'
+              : sessionMsg.startsWith('✗')
+              ? 'bg-[rgba(255,61,87,0.06)] border-[rgba(255,61,87,0.2)] text-[#ff3d57]'
+              : 'bg-[rgba(245,158,11,0.06)] border-[rgba(245,158,11,0.2)] text-[#f59e0b]'
+          }`}>
+            {sessionRunning && <Loader2 size={12} className="animate-spin shrink-0" />}
+            {sessionMsg}
+            {!sessionRunning && (
+              <button onClick={() => setSessionMsg('')} className="ml-auto text-[#475569] hover:text-[#64748b]">✕</button>
+            )}
+          </div>
+        )}
 
         {/* How it works banner */}
         <div className="rounded-xl border border-[rgba(245,158,11,0.2)] bg-[rgba(245,158,11,0.05)] p-4">
@@ -582,15 +646,25 @@ export default function PaperTradingPage() {
           </div>
           <div className="p-3 space-y-2 max-h-[600px] overflow-y-auto">
             {trades.length === 0 && (
-              <div className="text-center text-[#334155] text-sm py-12 space-y-3">
+              <div className="text-center text-sm py-12 space-y-4">
                 <Clock size={28} className="mx-auto text-[#1e1e35]" />
                 <div>
-                  <div className="font-medium text-[#475569] mb-1">Waiting for market hours</div>
+                  <div className="font-medium text-[#475569] mb-1">No trades yet</div>
                   <div className="text-xs text-[#334155]">
-                    The rule engine runs every 60 seconds during NSE trading hours<br/>
-                    (Mon–Fri, 9:15 AM – 3:30 PM IST). Trades will appear here automatically.
+                    Auto-trader runs every 60 s during NSE hours (Mon–Fri, 9:15 AM – 3:30 PM IST).<br/>
+                    Outside market hours, use the button below to force a session.
                   </div>
                 </div>
+                <button
+                  onClick={runSession}
+                  disabled={sessionRunning}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-[rgba(0,217,126,0.12)] text-[#00d97e] border border-[rgba(0,217,126,0.3)] hover:bg-[rgba(0,217,126,0.2)] disabled:opacity-50 transition-colors"
+                >
+                  {sessionRunning
+                    ? <><Loader2 size={13} className="animate-spin" /> Running session…</>
+                    : <><Zap size={13} /> Run Trading Session Now</>
+                  }
+                </button>
               </div>
             )}
             {trades.map(t => <TradeCard key={t.id as string} trade={t} activeMode={mode} />)}

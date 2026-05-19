@@ -12,14 +12,21 @@ function OptionChainCard({ symbol }: { symbol: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  async function load() {
-    setLoading(true); setError('');
+  async function load(isRetry = false) {
+    setLoading(true);
+    if (!isRetry) setError('');
     try {
       const d = await foApi.optionChain(symbol);
       setData(d);
+      setError('');
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(msg ?? 'NSE data unavailable — retrying next refresh');
+      if (!isRetry) {
+        // Auto-retry once after 3 s (NSE session may need a moment to prime)
+        setTimeout(() => load(true), 3000);
+      } else {
+        setError(msg ?? 'NSE option chain unavailable — NSE may be blocking this server\'s IP. Works on local/Indian deployments.');
+      }
     } finally { setLoading(false); }
   }
 
