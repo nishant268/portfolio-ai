@@ -1,10 +1,134 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { RefreshCw, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
-import { foApi } from '@/lib/api';
+import { RefreshCw, TrendingUp, TrendingDown, AlertCircle, ExternalLink, Key, CheckCircle2, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { foApi, api } from '@/lib/api';
 import type { FutureContract, OptionChain } from '@/lib/types';
 
 const fmt = (n: number) => n?.toLocaleString('en-IN', { maximumFractionDigits: 2 }) ?? '—';
+
+// ── Kiteconnect inline reconnect ──────────────────────────────────────────────
+function KiteReconnect({ onSuccess }: { onSuccess: () => void }) {
+  const [open, setOpen]               = useState(false);
+  const [loginUrl, setLoginUrl]       = useState('');
+  const [requestToken, setRequestToken] = useState('');
+  const [loading, setLoading]         = useState(false);
+  const [done, setDone]               = useState(false);
+  const [error, setError]             = useState('');
+
+  async function getUrl() {
+    setLoading(true); setError('');
+    try {
+      const { login_url } = await api.config.loginUrl();
+      setLoginUrl(login_url);
+      window.open(login_url, '_blank', 'noopener,noreferrer');
+    } catch {
+      setError('Failed — make sure API Key + Secret are saved in Setup first.');
+    } finally { setLoading(false); }
+  }
+
+  async function exchange() {
+    if (!requestToken.trim()) return;
+    setLoading(true); setError('');
+    try {
+      await api.config.generateToken(requestToken.trim());
+      setDone(true);
+      setTimeout(() => { setOpen(false); onSuccess(); }, 800);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(msg ?? 'Token exchange failed — check your request_token.');
+    } finally { setLoading(false); }
+  }
+
+  return (
+    <div className="border border-[rgba(245,158,11,0.25)] rounded-xl bg-[rgba(245,158,11,0.04)] overflow-hidden mb-3">
+      {/* Header row — always visible */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left"
+      >
+        <AlertCircle size={12} className="text-[#f59e0b] shrink-0" />
+        <div className="flex-1 min-w-0">
+          <span className="text-[11px] font-semibold text-[#f59e0b]">Live CE/PE OI unavailable</span>
+          <span className="text-[10px] text-[#64748b] ml-2">
+            Kiteconnect needs NSE + NFO exchange permissions
+          </span>
+        </div>
+        {open ? <ChevronUp size={12} className="text-[#475569] shrink-0" /> : <ChevronDown size={12} className="text-[#475569] shrink-0" />}
+      </button>
+
+      {/* Expandable instructions + OAuth flow */}
+      {open && (
+        <div className="border-t border-[rgba(245,158,11,0.15)] px-3 pb-3 pt-2 space-y-3">
+
+          {/* Step 1 — Enable permissions on developers.kite.trade */}
+          <div className="bg-[#08080f] border border-[#1e1e35] rounded-lg p-3 space-y-1.5">
+            <div className="text-[11px] font-semibold text-[#e2e8f0]">Step 1 — Enable NSE &amp; NFO in your API app</div>
+            <ol className="text-[10px] text-[#64748b] space-y-1 list-decimal list-inside leading-relaxed">
+              <li>Open <a href="https://developers.kite.trade" target="_blank" rel="noopener noreferrer" className="text-[#3b82f6] underline inline-flex items-center gap-0.5">developers.kite.trade <ExternalLink size={9}/></a></li>
+              <li>Click your app → <strong className="text-[#94a3b8]">Edit</strong></li>
+              <li>Under <strong className="text-[#94a3b8]">Exchange permissions</strong> tick <strong className="text-[#f59e0b]">NSE</strong>, <strong className="text-[#f59e0b]">NFO</strong>, and <strong className="text-[#f59e0b]">BSE</strong></li>
+              <li>Save — then continue to Step 2 below</li>
+            </ol>
+          </div>
+
+          {/* Step 2 — Re-login */}
+          <div className="bg-[#08080f] border border-[#1e1e35] rounded-lg p-3 space-y-2">
+            <div className="text-[11px] font-semibold text-[#e2e8f0]">Step 2 — Refresh your access token</div>
+
+            {!loginUrl ? (
+              <button
+                onClick={getUrl}
+                disabled={loading}
+                className="w-full py-2 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 bg-[rgba(59,130,246,0.1)] text-[#3b82f6] border border-[rgba(59,130,246,0.3)] hover:bg-[rgba(59,130,246,0.18)] disabled:opacity-50 transition-colors"
+              >
+                {loading ? <Loader2 size={11} className="animate-spin" /> : <ExternalLink size={11} />}
+                Open Kiteconnect Login
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <a
+                    href={loginUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-2 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 bg-[rgba(59,130,246,0.1)] text-[#3b82f6] border border-[rgba(59,130,246,0.3)] hover:bg-[rgba(59,130,246,0.18)] transition-colors"
+                  >
+                    <ExternalLink size={11} /> Re-open Login Page
+                  </a>
+                </div>
+                <p className="text-[10px] text-[#475569] leading-relaxed">
+                  After logging in, Kiteconnect redirects to your app URL with{' '}
+                  <code className="bg-[#1a1a2e] px-1 rounded text-[#94a3b8]">?request_token=…</code>{' '}
+                  in the address bar. Copy that value and paste below.
+                </p>
+                <input
+                  value={requestToken}
+                  onChange={e => setRequestToken(e.target.value)}
+                  placeholder="Paste request_token here"
+                  className="w-full bg-[#0a0a14] border border-[#1e1e35] rounded-lg px-3 py-2 text-[11px] text-[#e2e8f0] placeholder-[#334155] focus:border-[#3b82f6] focus:outline-none"
+                />
+                <button
+                  onClick={exchange}
+                  disabled={loading || !requestToken.trim() || done}
+                  className="w-full py-2 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 bg-[rgba(0,217,126,0.1)] text-[#00d97e] border border-[rgba(0,217,126,0.3)] hover:bg-[rgba(0,217,126,0.18)] disabled:opacity-50 transition-colors"
+                >
+                  {loading ? <Loader2 size={11} className="animate-spin" />
+                   : done   ? <CheckCircle2 size={11} />
+                   :          <Key size={11} />}
+                  {done ? 'Token saved — refreshing…' : 'Generate & Save Token'}
+                </button>
+              </div>
+            )}
+
+            {error && (
+              <div className="text-[10px] text-[#ff3d57] bg-[rgba(255,61,87,0.08)] border border-[rgba(255,61,87,0.2)] rounded-lg px-2.5 py-1.5">{error}</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Option Chain ──────────────────────────────────────────────────────────────
 function OptionChainCard({ symbol }: { symbol: string }) {
@@ -65,15 +189,9 @@ function OptionChainCard({ symbol }: { symbol: string }) {
 
       {data && (
         <>
-          {/* OI unavailable banner */}
+          {/* OI unavailable — show inline reconnect */}
           {!data.total_ce_oi && !data.total_pe_oi && (
-            <div className="flex items-center gap-2 text-[10px] text-[#64748b] bg-[#08080f] border border-[#1e1e35] rounded-lg px-3 py-2 mb-3">
-              <AlertCircle size={11} className="text-[#f59e0b] shrink-0" />
-              <span>
-                Live OI requires Kiteconnect with NSE/NFO permissions, or direct NSE access.
-                {' '}<a href="/dashboard" className="text-[#8b5cf6] underline">Re-login via Setup</a> to refresh the token, or OI will show during market hours (9:15–15:30 IST).
-              </span>
-            </div>
+            <KiteReconnect onSuccess={() => load()} />
           )}
 
           {/* Summary row */}
