@@ -351,8 +351,13 @@ def make_final_decision(
 
     confidence = min(abs(combined) / 10.0, 0.95)
 
-    stop_loss   = round(price * (1 - stop_loss_pct), 2)
-    take_profit = round(price * (1 + take_profit_pct), 2)
+    # SHORT: stop is ABOVE entry (loss when price rises), target is BELOW entry
+    if action == "SHORT":
+        stop_loss   = round(price * (1 + stop_loss_pct), 2)
+        take_profit = round(price * (1 - take_profit_pct), 2)
+    else:
+        stop_loss   = round(price * (1 - stop_loss_pct), 2)
+        take_profit = round(price * (1 + take_profit_pct), 2)
 
     # Build detailed reasoning report
     reasoning = (

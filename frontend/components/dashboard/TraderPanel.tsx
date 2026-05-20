@@ -65,13 +65,24 @@ function OptionChainCard({ symbol }: { symbol: string }) {
 
       {data && (
         <>
+          {/* OI unavailable banner */}
+          {!data.total_ce_oi && !data.total_pe_oi && (
+            <div className="flex items-center gap-2 text-[10px] text-[#64748b] bg-[#08080f] border border-[#1e1e35] rounded-lg px-3 py-2 mb-3">
+              <AlertCircle size={11} className="text-[#f59e0b] shrink-0" />
+              <span>
+                Live OI requires Kiteconnect with NSE/NFO permissions, or direct NSE access.
+                {' '}<a href="/dashboard" className="text-[#8b5cf6] underline">Re-login via Setup</a> to refresh the token, or OI will show during market hours (9:15–15:30 IST).
+              </span>
+            </div>
+          )}
+
           {/* Summary row */}
           <div className="grid grid-cols-4 gap-3 mb-4">
             {[
-              { label: 'PCR', value: data.pcr, color: pcrColor, sub: pcrLabel },
-              { label: 'Max Pain', value: `₹${fmt(data.max_pain)}`, color: 'text-[#f59e0b]', sub: 'strike' },
-              { label: 'Total CE OI', value: (data.total_ce_oi / 1e5).toFixed(1) + 'L', color: 'text-[#ff3d57]', sub: 'calls' },
-              { label: 'Total PE OI', value: (data.total_pe_oi / 1e5).toFixed(1) + 'L', color: 'text-[#00d97e]', sub: 'puts' },
+              { label: 'PCR', value: data.pcr ? String(data.pcr) : '—', color: pcrColor, sub: pcrLabel },
+              { label: 'Max Pain', value: data.max_pain ? `₹${fmt(data.max_pain)}` : '—', color: 'text-[#f59e0b]', sub: 'strike' },
+              { label: 'Total CE OI', value: data.total_ce_oi ? (data.total_ce_oi / 1e5).toFixed(1) + 'L' : '—', color: 'text-[#ff3d57]', sub: 'calls' },
+              { label: 'Total PE OI', value: data.total_pe_oi ? (data.total_pe_oi / 1e5).toFixed(1) + 'L' : '—', color: 'text-[#00d97e]', sub: 'puts' },
             ].map(item => (
               <div key={item.label} className="bg-[#08080f] border border-[#1e1e35] rounded-lg p-2.5 text-center">
                 <div className="text-[10px] text-[#475569] mb-1">{item.label}</div>
@@ -157,13 +168,19 @@ function FuturesCard({ symbol }: { symbol: string }) {
           Futures data available during market hours: Mon–Fri, 9:15 AM – 3:30 PM IST
         </div>
       )}
+      {data.some(f => f.ltp === 0) && (
+        <div className="flex items-center gap-1.5 text-[10px] text-[#475569] mb-2">
+          <AlertCircle size={10} className="text-[#f59e0b]" />
+          Futures LTP unavailable — showing approximate spot price. Enable NSE permissions in Kiteconnect for live futures prices.
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-2">
         {data.map((f, i) => {
           const up = (f.change_pct ?? 0) >= 0;
           return (
             <div key={i} className="bg-[#08080f] border border-[#1e1e35] rounded-xl p-3">
               <div className="text-[10px] text-[#475569] mb-1">{labels[i] ?? `Month ${i + 1}`}</div>
-              <div className="text-xs font-bold text-[#e2e8f0]">₹{fmt(f.ltp)}</div>
+              <div className="text-xs font-bold text-[#e2e8f0]">{f.ltp ? `₹${fmt(f.ltp)}` : '—'}</div>
               <div className={`text-[11px] font-semibold flex items-center gap-0.5 ${up ? 'positive' : 'negative'}`}>
                 {up ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
                 {up ? '+' : ''}{f.change_pct?.toFixed(2) ?? '0.00'}%

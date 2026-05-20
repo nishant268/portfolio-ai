@@ -49,6 +49,8 @@ async def get_portfolio(mode: str):
             **pos.model_dump(),
             "current_price": live,
             "market_value": mv,
+            # Proceeds model: long is an asset; short is a liability (negative contribution to total value)
+            "portfolio_contribution": mv if pos.direction == "long" else -mv,
             "unrealized_pnl": pnl,
             "unrealized_pnl_pct": (pnl / cost * 100) if cost else 0,
         })

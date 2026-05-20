@@ -42,21 +42,22 @@ function Stat({ label, value, sub, color, icon: Icon }: {
 
 // ── Trade entry in live feed ──────────────────────────────────────────────────
 function TradePill({ t }: { t: Record<string, unknown> }) {
-  const isBuy = (t.action as string) === 'BUY';
-  const pnl   = t.pnl as number;
+  const action  = t.action as string;
+  const isEntry = action === 'BUY' || action === 'SHORT';
+  const pnl     = (t.pnl as number) ?? 0;
   return (
     <div className={`flex items-center gap-3 px-3 py-2 rounded-xl border text-xs ${
-      isBuy
+      isEntry
         ? 'border-[rgba(59,130,246,0.25)] bg-[rgba(59,130,246,0.06)]'
         : pnl >= 0 ? 'border-[rgba(0,217,126,0.25)] bg-[rgba(0,217,126,0.06)]'
                    : 'border-[rgba(255,61,87,0.25)] bg-[rgba(255,61,87,0.06)]'
     }`}>
       <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
-        isBuy ? 'bg-[rgba(59,130,246,0.2)] text-[#3b82f6]' : 'bg-[rgba(255,61,87,0.2)] text-[#ff3d57]'
-      }`}>{t.action as string}</span>
+        isEntry ? 'bg-[rgba(59,130,246,0.2)] text-[#3b82f6]' : 'bg-[rgba(255,61,87,0.2)] text-[#ff3d57]'
+      }`}>{action}</span>
       <span className="font-semibold text-[#e2e8f0]">{t.ticker as string}</span>
       <span className="text-[#64748b]">{t.qty as number} × ₹{(t.price as number)?.toFixed(2)}</span>
-      {!isBuy && <span className={pnl >= 0 ? 'positive font-semibold ml-auto' : 'negative font-semibold ml-auto'}>
+      {!isEntry && <span className={pnl >= 0 ? 'positive font-semibold ml-auto' : 'negative font-semibold ml-auto'}>
         {pnl >= 0 ? '+' : ''}₹{Math.abs(Math.round(pnl)).toLocaleString('en-IN')}
       </span>}
       <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
@@ -228,31 +229,32 @@ function AnalysisTab({ tradeId, mode }: { tradeId: string; mode: string }) {
 function TradeCard({ trade, activeMode }: { trade: Record<string, unknown>; activeMode: string }) {
   const [tab, setTab] = useState<'rule' | 'analysis'>('rule');
   const [expanded, setExpanded] = useState(false);
-  const isBuy = (trade.action as string) === 'BUY';
-  const pnl = trade.pnl as number;
+  const action  = trade.action as string;
+  const isEntry = action === 'BUY' || action === 'SHORT';
+  const pnl     = (trade.pnl as number) ?? 0;
 
   return (
     <div className={`border rounded-xl overflow-hidden ${
-      isBuy ? 'border-[rgba(59,130,246,0.2)]' : pnl >= 0 ? 'border-[rgba(0,217,126,0.2)]' : 'border-[rgba(255,61,87,0.2)]'
+      isEntry ? 'border-[rgba(59,130,246,0.2)]' : pnl >= 0 ? 'border-[rgba(0,217,126,0.2)]' : 'border-[rgba(255,61,87,0.2)]'
     }`}>
       {/* Header */}
       <div
         className={`flex items-center justify-between gap-3 px-3 py-2.5 cursor-pointer ${
-          isBuy ? 'bg-[rgba(59,130,246,0.04)]' : pnl >= 0 ? 'bg-[rgba(0,217,126,0.04)]' : 'bg-[rgba(255,61,87,0.04)]'
+          isEntry ? 'bg-[rgba(59,130,246,0.04)]' : pnl >= 0 ? 'bg-[rgba(0,217,126,0.04)]' : 'bg-[rgba(255,61,87,0.04)]'
         }`}
         onClick={() => setExpanded(e => !e)}
       >
         <div className="flex items-center gap-2">
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-            isBuy ? 'bg-[rgba(59,130,246,0.15)] text-[#3b82f6]' : pnl >= 0 ? 'badge-buy' : 'badge-sell'
-          }`}>{trade.action as string}</span>
+            isEntry ? 'bg-[rgba(59,130,246,0.15)] text-[#3b82f6]' : pnl >= 0 ? 'badge-buy' : 'badge-sell'
+          }`}>{action}</span>
           <span className="font-bold text-sm text-[#e2e8f0]">{trade.ticker as string}</span>
           <span className="text-xs text-[#64748b]">
             {trade.quantity as number} × ₹{(trade.price as number)?.toFixed(2)}
           </span>
         </div>
         <div className="flex items-center gap-3">
-          {!isBuy && (
+          {!isEntry && (
             <span className={`text-sm font-bold ${pnl >= 0 ? 'positive' : 'negative'}`}>
               {pnl >= 0 ? '+' : ''}₹{Math.abs(Math.round(pnl)).toLocaleString('en-IN')}
             </span>
@@ -409,7 +411,13 @@ export default function PaperTradingPage() {
 
   const cash         = (portfolio?.cash as number) ?? (portfolio?.initial_capital as number) ?? 1_000_000;
   const initCapital  = (portfolio?.initial_capital as number) ?? 1_000_000;
-  const posValue     = positions.reduce((s, p) => s + ((p.market_value as number) || (p.avg_entry_price as number) * (p.quantity as number) || 0), 0);
+  // portfolio_contribution is signed: positive for long (asset), negative for short (liability)
+  const posValue     = positions.reduce((s, p) => {
+    const contrib = (p.portfolio_contribution as number);
+    if (contrib !== undefined && contrib !== null) return s + contrib;
+    const mv = (p.market_value as number) || (p.avg_entry_price as number) * (p.quantity as number) || 0;
+    return s + ((p.direction as string) === 'short' ? -mv : mv);
+  }, 0);
   const totalValue   = cash + posValue;
   const totalPnl     = totalValue - initCapital;
   const totalPct     = initCapital > 0 ? (totalPnl / initCapital * 100) : 0;

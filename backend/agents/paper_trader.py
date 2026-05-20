@@ -317,7 +317,11 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
             )
             save_trade(t)
             close_position(portfolio.id, pos.ticker, pos.direction)
-            portfolio.cash += proceeds
+            # Proceeds model: SELL adds cash (receive sale proceeds); COVER subtracts (pay to buy back)
+            if pos.direction == "long":
+                portfolio.cash += proceeds
+            else:
+                portfolio.cash -= proceeds
             update_portfolio_cash(portfolio.id, portfolio.cash)
             auto_exits.append({"ticker": pos.ticker, "reason": reason_type, "pnl": pnl})
 
@@ -327,8 +331,10 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
     # ── Step 3: Gather stock data for watchlist ────────────────────────────────
     # Exclude already-held tickers at max capacity
     held_tickers = {p.ticker for p in positions}
+    # Proceeds model: long positions add to portfolio value; short positions are liabilities (subtract)
     portfolio_value = portfolio.cash + sum(
-        _get_live_price(p.ticker) * p.quantity for p in positions
+        p.avg_entry_price * p.quantity * (1 if p.direction == "long" else -1)
+        for p in positions
     )
     cash_pct = portfolio.cash / portfolio_value if portfolio_value > 0 else 1.0
 
@@ -374,8 +380,12 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
         if live_price <= 0:
             continue
 
-        stop_loss   = float(dec.get("stop_loss",   live_price * (1 - STOP_LOSS_PCT)))
-        take_profit = float(dec.get("take_profit", live_price * (1 + TAKE_PROFIT_PCT)))
+        if action == "SHORT":
+            stop_loss   = float(dec.get("stop_loss",   live_price * (1 + STOP_LOSS_PCT)))
+            take_profit = float(dec.get("take_profit", live_price * (1 - TAKE_PROFIT_PCT)))
+        else:
+            stop_loss   = float(dec.get("stop_loss",   live_price * (1 - STOP_LOSS_PCT)))
+            take_profit = float(dec.get("take_profit", live_price * (1 + TAKE_PROFIT_PCT)))
         full_reasoning = dec.get("reasoning", "")  # rule-based engine already built full reasoning
 
         tech_snapshot = json.dumps({
@@ -425,12 +435,16 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
                 direction="long" if action == "BUY" else "short",
             )
             upsert_position(new_pos)
-            portfolio.cash -= cost
+            # Proceeds model: BUY spends cash; SHORT receives proceeds (short sale proceeds go into cash)
+            if action == "BUY":
+                portfolio.cash -= cost
+            else:  # SHORT
+                portfolio.cash += cost
             update_portfolio_cash(portfolio.id, portfolio.cash)
 
             executed_trades.append({
                 "action": action, "ticker": ticker, "qty": actual_qty,
-                "price": live_price, "cost": cost,
+                "price": live_price, "cost": cost, "pnl": 0.0,
                 "reasoning": full_reasoning, "signal": dec.get("signal"),
             })
 
@@ -468,7 +482,11 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
                 pos.quantity -= sell_qty
                 upsert_position(pos)
 
-            portfolio.cash += proceeds
+            # Proceeds model: SELL receives cash; COVER pays cash to buy back shares
+            if pos.direction == "long":
+                portfolio.cash += proceeds
+            else:
+                portfolio.cash -= proceeds
             update_portfolio_cash(portfolio.id, portfolio.cash)
 
             executed_trades.append({
@@ -482,7 +500,9 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
 
     async def _fetch_pos_value(p) -> float:
         price = await loop.run_in_executor(None, _get_live_price, p.ticker)
-        return (price if price > 0 else p.avg_entry_price) * p.quantity
+        val = (price if price > 0 else p.avg_entry_price) * p.quantity
+        # Proceeds model: long position is an asset (+); short is a liability (-)
+        return val if p.direction == "long" else -val
 
     pos_values = await asyncio.gather(*[_fetch_pos_value(p) for p in final_positions])
     positions_value = sum(pos_values)

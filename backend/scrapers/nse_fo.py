@@ -56,9 +56,8 @@ def _bs_iv(price: float, S: float, K: float, T: float, r: float = 0.065,
 
 async def _kite_option_chain(symbol: str) -> dict[str, Any]:
     """
-    Build option chain from Kiteconnect instruments + Black-Scholes prices.
-    Returns the same schema as the NSE scraper so callers stay unchanged.
-    Adds `is_theoretical: True` to indicate live OI is unavailable.
+    Build option chain from Kiteconnect instruments + live quotes.
+    Uses kite.quote() for real OI/LTP; falls back to Black-Scholes when market is closed.
     """
     loop = asyncio.get_event_loop()
 
@@ -72,7 +71,6 @@ async def _kite_option_chain(symbol: str) -> dict[str, Any]:
         kite = KiteConnect(api_key=cfg.zerodha.api_key)
         kite.set_access_token(cfg.zerodha.access_token)
 
-        # Map symbol to kiteconnect name
         sym_map = {"BANKNIFTY": "BANKNIFTY", "FINNIFTY": "FINNIFTY",
                    "MIDCPNIFTY": "MIDCPNIFTY", "NIFTYNXT50": "NIFTYNXT50"}
         kite_name = sym_map.get(symbol.upper(), "NIFTY")
@@ -89,7 +87,6 @@ async def _kite_option_chain(symbol: str) -> dict[str, Any]:
         strikes = sorted(set(i["strike"] for i in near))
         expiry_strs = [str(e) for e in expiries[:3]]
 
-        # Get underlying from allIndices
         import yfinance as yf
         yf_map = {"NIFTY": "^NSEI", "BANKNIFTY": "^NSEBANK",
                   "FINNIFTY": "NIFTY_FIN_SERVICE.NS", "MIDCPNIFTY": "^CNXMIDCAP"}
@@ -98,21 +95,17 @@ async def _kite_option_chain(symbol: str) -> dict[str, Any]:
         except Exception:
             spot = 0.0
 
-        # Get VIX for sigma estimate
         vix = 15.0
         try:
-            t_vix = yf.Ticker("^INDIAVIX")
-            vix = float(t_vix.fast_info.last_price or 15.0)
+            vix = float(yf.Ticker("^INDIAVIX").fast_info.last_price or 15.0)
         except Exception:
             pass
-        sigma = vix / 100.0  # annualised volatility
+        sigma = vix / 100.0
 
-        # Days to expiry
         today = date.today()
         dte = max((nearest - today).days, 0)
         T = dte / 365.0
 
-        # Generate ATM ± 5% strikes
         if spot > 0:
             atm = min(strikes, key=lambda k: abs(k - spot))
             idx = strikes.index(atm)
@@ -120,30 +113,58 @@ async def _kite_option_chain(symbol: str) -> dict[str, Any]:
         else:
             selected = strikes[:10]
 
+        # Build tradingsymbol lookup: (strike, type) → tradingsymbol
+        sym_lookup: dict[tuple, str] = {}
+        for i in near:
+            if i["strike"] in selected:
+                sym_lookup[(i["strike"], i["instrument_type"])] = i["tradingsymbol"]
+
+        # Fetch live OI + LTP from Kiteconnect quote API
+        trading_symbols = [f"NFO:{ts}" for ts in sym_lookup.values()]
+        ts_to_quote: dict[str, dict] = {}
+        try:
+            if trading_symbols:
+                raw_quotes = kite.quote(trading_symbols[:200])
+                for k, v in raw_quotes.items():
+                    ts_to_quote[k.split(":", 1)[-1]] = v
+        except Exception:
+            pass
+
         top_strikes = []
+        total_ce_oi = 0
+        total_pe_oi = 0
         for k in selected:
-            ce_ltp = round(_bs_price(spot, k, T, sigma, option_type="call"), 2) if spot > 0 else 0
-            pe_ltp = round(_bs_price(spot, k, T, sigma, option_type="put"), 2) if spot > 0 else 0
-            ce_iv  = round(sigma * 100, 2) if spot > 0 else 0
-            pe_iv  = round(sigma * 100, 2) if spot > 0 else 0
+            ce_ts = sym_lookup.get((k, "CE"), "")
+            pe_ts = sym_lookup.get((k, "PE"), "")
+            ce_q  = ts_to_quote.get(ce_ts, {})
+            pe_q  = ts_to_quote.get(pe_ts, {})
+
+            ce_oi  = ce_q.get("oi", 0)
+            pe_oi  = pe_q.get("oi", 0)
+            ce_ltp = ce_q.get("last_price") or (round(_bs_price(spot, k, T, sigma, option_type="call"), 2) if spot > 0 else 0)
+            pe_ltp = pe_q.get("last_price") or (round(_bs_price(spot, k, T, sigma, option_type="put"), 2) if spot > 0 else 0)
+
+            total_ce_oi += ce_oi
+            total_pe_oi += pe_oi
             top_strikes.append({
-                "strike": k, "ce_oi": 0, "ce_ltp": ce_ltp, "ce_iv": ce_iv,
-                "pe_oi": 0, "pe_ltp": pe_ltp, "pe_iv": pe_iv,
+                "strike": k,
+                "ce_oi": ce_oi, "ce_ltp": ce_ltp, "ce_iv": round(sigma * 100, 2),
+                "pe_oi": pe_oi, "pe_ltp": pe_ltp, "pe_iv": round(sigma * 100, 2),
             })
 
-        # Theoretical PCR ≈ delta ratio (for ATM: CE_delta ≈ 0.5, PE_delta ≈ -0.5 → PCR ≈ 1)
-        pcr = 1.0  # theoretical ATM PCR
+        pcr = round(total_pe_oi / total_ce_oi, 2) if total_ce_oi else 0
+        has_live_oi = total_ce_oi > 0 or total_pe_oi > 0
 
         return {
             "symbol": kite_name,
             "underlying": round(spot, 2),
             "expiry": expiry_strs,
             "pcr": pcr,
-            "max_pain": 0.0,       # not computable without real OI
-            "total_ce_oi": 0,
-            "total_pe_oi": 0,
+            "max_pain": 0.0,
+            "total_ce_oi": total_ce_oi,
+            "total_pe_oi": total_pe_oi,
             "top_strikes": top_strikes,
-            "is_theoretical": True,
+            "is_theoretical": not has_live_oi,
             "vix": round(vix, 2),
             "dte": dte,
         }
@@ -152,6 +173,85 @@ async def _kite_option_chain(symbol: str) -> dict[str, Any]:
         return await loop.run_in_executor(None, _build)
     except Exception as e:
         return {"error": str(e)}
+
+
+async def _kite_futures_strip(symbol: str) -> list[dict[str, Any]]:
+    """Fallback: near/mid/far futures from Kiteconnect quotes, then yfinance if Kite unavailable."""
+    loop = asyncio.get_event_loop()
+
+    def _build() -> list[dict[str, Any]]:
+        from backend.models.config import load_config
+        cfg = load_config()
+        if not cfg.zerodha.api_key or not cfg.zerodha.access_token:
+            return _yfinance_futures_stub(symbol)
+
+        from kiteconnect import KiteConnect
+        kite = KiteConnect(api_key=cfg.zerodha.api_key)
+        kite.set_access_token(cfg.zerodha.access_token)
+
+        sym_map = {"BANKNIFTY": "BANKNIFTY", "FINNIFTY": "FINNIFTY", "MIDCPNIFTY": "MIDCPNIFTY"}
+        kite_name = sym_map.get(symbol.upper(), "NIFTY")
+
+        try:
+            instruments = kite.instruments("NFO")
+        except Exception:
+            return _yfinance_futures_stub(symbol)
+
+        futures = sorted(
+            [i for i in instruments if i["name"] == kite_name and i["instrument_type"] == "FUT"],
+            key=lambda x: x["expiry"],
+        )[:3]
+        if not futures:
+            return _yfinance_futures_stub(symbol)
+
+        trading_symbols = [f"NFO:{i['tradingsymbol']}" for i in futures]
+        try:
+            quotes = kite.quote(trading_symbols)
+        except Exception:
+            # Kiteconnect market data not available (token expired / insufficient permissions)
+            return _yfinance_futures_stub(symbol, futures)
+
+        result = []
+        for fut in futures:
+            key = f"NFO:{fut['tradingsymbol']}"
+            q = quotes.get(key, {})
+            ltp = q.get("last_price", 0)
+            close = (q.get("ohlc") or {}).get("close", ltp) or ltp
+            change_pct = round((ltp - close) / close * 100, 2) if close else 0
+            result.append({
+                "expiry": str(fut["expiry"]),
+                "ltp": round(ltp, 2),
+                "change_pct": change_pct,
+                "oi": q.get("oi", 0),
+            })
+
+        # If all LTPs are 0, use yfinance spot as approximate
+        if result and all(r["ltp"] == 0 for r in result):
+            return _yfinance_futures_stub(symbol, futures)
+        return result
+
+    try:
+        return await loop.run_in_executor(None, _build)
+    except Exception:
+        return []
+
+
+def _yfinance_futures_stub(symbol: str, instruments: list | None = None) -> list[dict[str, Any]]:
+    """Build a futures stub using yfinance spot price when live futures data is unavailable."""
+    import yfinance as yf
+    yf_map = {"NIFTY": "^NSEI", "BANKNIFTY": "^NSEBANK", "FINNIFTY": "NIFTY_FIN_SERVICE.NS"}
+    try:
+        spot = float(yf.Ticker(yf_map.get(symbol.upper(), "^NSEI")).fast_info.last_price or 0)
+    except Exception:
+        spot = 0.0
+    if spot <= 0:
+        return []
+
+    # Approximate futures with spot (no carry cost model — just shows underlying price)
+    if instruments:
+        return [{"expiry": str(i["expiry"]), "ltp": round(spot, 2), "change_pct": 0.0, "oi": 0}
+                for i in instruments[:3]]
+    return [{"expiry": "—", "ltp": round(spot, 2), "change_pct": 0.0, "oi": 0}]
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -242,15 +342,20 @@ async def futures_strip(symbol: str = "NIFTY") -> list[dict[str, Any]]:
         if s.get("metadata", {}).get("instrumentType") == "Index Futures"
         or "FUT" in s.get("metadata", {}).get("instrumentType", "")
     ]
-    return [
+    result = [
         {
             "expiry": f.get("metadata", {}).get("expiryDate"),
-            "ltp": f.get("underlyingValue") or f.get("metadata", {}).get("lastPrice"),
+            # lastPrice is the futures contract LTP; underlyingValue is the spot — never use spot as LTP
+            "ltp": f.get("metadata", {}).get("lastPrice") or f.get("underlyingValue"),
             "change_pct": f.get("metadata", {}).get("pChange"),
             "oi": f.get("marketDeptOrderBook", {}).get("totalSellQuantity"),
         }
         for f in futures[:3]
     ]
+    if result:
+        return result
+    # NSE blocked — fall back to Kiteconnect
+    return await _kite_futures_strip(symbol)
 
 
 def _max_pain(strikes: list[dict]) -> float:
