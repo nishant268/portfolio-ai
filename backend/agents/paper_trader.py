@@ -16,7 +16,7 @@ import yfinance as yf
 from backend.models.config import AppConfig, load_config
 from backend.models.paper_trade import (
     PaperDailySnapshot, PaperPortfolio, PaperPosition, PaperTrade,
-    close_position, get_or_create_portfolio, get_positions,
+    close_position, get_or_create_portfolio, get_positions, get_trades,
     save_snapshot, save_trade, update_portfolio_cash, upsert_position,
 )
 from backend.scrapers.nse import nse
@@ -76,6 +76,7 @@ MIN_CASH_PCT = 0.15           # keep at least 15% in cash
 MAX_POSITIONS = 12            # increased from 10
 STOP_LOSS_PCT = 0.08
 TAKE_PROFIT_PCT = 0.20
+COOLDOWN_MINUTES = 15         # block re-entry for a ticker for N min after an auto-exit (prevents stop-loss churn)
 
 
 def _yf_ticker(symbol: str) -> str:
@@ -301,6 +302,11 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
             pnl = (live_price - pos.avg_entry_price) * pos.quantity * (1 if pos.direction == "long" else -1)
             proceeds = live_price * pos.quantity
 
+            pct_move = (pnl / (pos.avg_entry_price * pos.quantity)) * 100
+            why = (
+                f"{reason_type} · entry ₹{pos.avg_entry_price:.2f} → exit ₹{live_price:.2f} "
+                f"({pct_move:+.1f}%) · P&L ₹{pnl:+,.0f}"
+            )
             t = PaperTrade(
                 portfolio_id=portfolio.id,
                 ticker=pos.ticker,
@@ -312,7 +318,8 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
                 signal=reason_type,
                 reasoning=f"AUTO {reason_type}: {reason_text} "
                           f"Entry ₹{pos.avg_entry_price:.2f} → Exit ₹{live_price:.2f}. "
-                          f"P&L: ₹{pnl:+,.2f} ({(pnl / (pos.avg_entry_price * pos.quantity)) * 100:+.1f}%)",
+                          f"P&L: ₹{pnl:+,.2f} ({pct_move:+.1f}%)",
+                why_summary=why,
                 session_market_view="Auto exit triggered",
             )
             save_trade(t)
@@ -360,9 +367,36 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
     market_view = rule_result.get("market_view", "")
     decisions   = rule_result.get("decisions", [])
 
+    # ── Step 4.5: Build re-entry cooldown map ─────────────────────────────────
+    # If a ticker was auto-exited (STOP_LOSS / TAKE_PROFIT) in the last
+    # COOLDOWN_MINUTES, skip new entries for it — prevents the immediate
+    # re-short churn pattern.
+    from datetime import datetime as _dt, timedelta as _td
+    cooldown_until: dict[str, _dt] = {}
+    cooldown_cutoff = _dt.utcnow() - _td(minutes=COOLDOWN_MINUTES)
+    for tr in get_trades(portfolio.id):
+        if tr.action not in ("SELL", "COVER"):
+            continue
+        if tr.signal not in ("STOP_LOSS", "TAKE_PROFIT"):
+            continue
+        try:
+            exit_at = _dt.fromisoformat(tr.executed_at)
+        except Exception:
+            continue
+        if exit_at < cooldown_cutoff:
+            continue
+        prev = cooldown_until.get(tr.ticker)
+        end_at = exit_at + _td(minutes=COOLDOWN_MINUTES)
+        if not prev or end_at > prev:
+            cooldown_until[tr.ticker] = end_at
+
+    held_tickers = {p.ticker for p in positions}
+
     # ── Step 5: Execute decisions ─────────────────────────────────────────────
     executed_trades: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
     stock_price_map = {s["ticker"]: s for s in stock_data}
+    now_utc = _dt.utcnow()
 
     for dec in decisions:
         ticker = dec.get("ticker", "")
@@ -371,6 +405,17 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
 
         if action == "HOLD" or quantity <= 0 or not ticker:
             continue
+
+        # Skip new entries that violate cooldown or already have a position
+        if action in ("BUY", "SHORT"):
+            cd_end = cooldown_until.get(ticker)
+            if cd_end and cd_end > now_utc:
+                mins_left = int((cd_end - now_utc).total_seconds() // 60) + 1
+                skipped.append({"ticker": ticker, "reason": f"cooldown {mins_left}m after recent stop-loss"})
+                continue
+            if ticker in held_tickers:
+                skipped.append({"ticker": ticker, "reason": "already have an open position"})
+                continue
 
         stock = stock_price_map.get(ticker)
         if not stock:
@@ -414,6 +459,7 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
                 pnl=0.0,
                 signal=dec.get("signal", "BUY"),
                 reasoning=full_reasoning,
+                why_summary=dec.get("why_summary", ""),
                 technicals_snapshot=tech_snapshot,
                 session_market_view=market_view,
             )
@@ -446,6 +492,7 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
                 "action": action, "ticker": ticker, "qty": actual_qty,
                 "price": live_price, "cost": cost, "pnl": 0.0,
                 "reasoning": full_reasoning, "signal": dec.get("signal"),
+                "why_summary": dec.get("why_summary", ""),
             })
 
         elif action in ("SELL", "COVER"):
@@ -466,6 +513,7 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
                 pnl=pnl,
                 signal=dec.get("signal", "SELL"),
                 reasoning=full_reasoning,
+                why_summary=dec.get("why_summary", ""),
                 technicals_snapshot=tech_snapshot,
                 session_market_view=market_view,
             )
@@ -493,6 +541,7 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
                 "action": action, "ticker": ticker, "qty": sell_qty,
                 "price": live_price, "proceeds": proceeds, "pnl": pnl,
                 "reasoning": full_reasoning, "signal": dec.get("signal"),
+                "why_summary": dec.get("why_summary", ""),
             })
 
     # ── Step 6: Daily snapshot ────────────────────────────────────────────────
@@ -546,5 +595,6 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
         "auto_exits": auto_exits,
         "executed_trades": executed_trades,
         "trades_count": len(executed_trades),
+        "skipped": skipped,
         "active_positions": len(final_positions),
     }

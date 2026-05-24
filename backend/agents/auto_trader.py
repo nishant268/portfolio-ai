@@ -88,6 +88,7 @@ def get_status() -> AutoTraderStatus:
 async def _run_loop(mode: str, interval: int) -> None:
     from backend.agents.paper_trader import run_trading_session
     from backend.models.config import load_config
+    import time
 
     _status.running  = True
     _status.mode     = mode
@@ -95,6 +96,7 @@ async def _run_loop(mode: str, interval: int) -> None:
     _status.error    = None
 
     while _status.running:
+        cycle_start = time.monotonic()
         try:
             if is_market_open():
                 cfg = load_config()
@@ -128,8 +130,12 @@ async def _run_loop(mode: str, interval: int) -> None:
         except Exception as exc:
             _status.error = str(exc)[:200]
 
-        # Countdown to next run
-        for remaining in range(interval, 0, -1):
+        # Strict cadence: target every `interval` seconds wall-clock, regardless
+        # of how long the session took. If a session ran 8s, sleep 52s; if it
+        # ran 65s, fire immediately.
+        elapsed = time.monotonic() - cycle_start
+        remaining_total = max(int(interval - elapsed), 0)
+        for remaining in range(remaining_total, 0, -1):
             if not _status.running:
                 break
             _status.next_run_in = remaining

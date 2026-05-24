@@ -375,6 +375,32 @@ def make_final_decision(
         f"Stop-loss: ₹{stop_loss} | Take-profit: ₹{take_profit}"
     )
 
+    # One-line "why" — picks the two analysts whose weighted contribution to the
+    # combined score is strongest IN THE DIRECTION OF the final action, so the
+    # summary actually explains the trade.
+    sign = 1 if combined >= 0 else -1
+    contribs = [
+        ("Technical",   tech * weights["technical"],   tech_reason),
+        ("Fundamental", fund * weights["fundamental"], fund_reason),
+        ("Momentum",    mom  * weights["momentum"],    mom_reason),
+        ("Sentiment",   sent * weights["sentiment"],   sent_reason),
+        ("Market",      mkt  * weights["market"],      mkt_reason),
+    ]
+    aligned = [(n, c, r) for (n, c, r) in contribs if c * sign > 0]
+    aligned.sort(key=lambda x: abs(x[1]), reverse=True)
+    top_two = aligned[:2] if aligned else sorted(contribs, key=lambda x: abs(x[1]), reverse=True)[:2]
+
+    def _short(reason: str) -> str:
+        # Take the first short phrase before a " | " or " → " marker
+        head = reason.split("|", 1)[0].strip()
+        head = head.split("→", 1)[0].strip() if "→" in head else head
+        return head[:60].rstrip()
+
+    why_summary = (
+        f"{signal} · score {combined:+.1f}/10 · "
+        + " + ".join(f"{n}: {_short(r)}" for (n, _, r) in top_two)
+    )[:200]
+
     return {
         "ticker": ticker,
         "action": action,
@@ -385,6 +411,7 @@ def make_final_decision(
         "stop_loss": stop_loss,
         "take_profit": take_profit,
         "reasoning": reasoning,
+        "why_summary": why_summary,
         "key_technicals": tech_reason[:120],
         "key_fundamentals": fund_reason[:120],
         "risk_note": f"Stop-loss at {stop_loss_pct*100:.0f}% below entry. {'High VIX — reduce size.' if 'high fear' in sent_reason.lower() else 'Normal risk environment.'}",

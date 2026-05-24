@@ -239,34 +239,47 @@ function TradeCard({ trade, activeMode }: { trade: Record<string, unknown>; acti
     }`}>
       {/* Header */}
       <div
-        className={`flex items-center justify-between gap-3 px-3 py-2.5 cursor-pointer ${
+        className={`px-3 py-2.5 cursor-pointer ${
           isEntry ? 'bg-[rgba(59,130,246,0.04)]' : pnl >= 0 ? 'bg-[rgba(0,217,126,0.04)]' : 'bg-[rgba(255,61,87,0.04)]'
         }`}
         onClick={() => setExpanded(e => !e)}
       >
-        <div className="flex items-center gap-2">
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-            isEntry ? 'bg-[rgba(59,130,246,0.15)] text-[#3b82f6]' : pnl >= 0 ? 'badge-buy' : 'badge-sell'
-          }`}>{action}</span>
-          <span className="font-bold text-sm text-[#e2e8f0]">{trade.ticker as string}</span>
-          <span className="text-xs text-[#64748b]">
-            {trade.quantity as number} × ₹{(trade.price as number)?.toFixed(2)}
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          {!isEntry && (
-            <span className={`text-sm font-bold ${pnl >= 0 ? 'positive' : 'negative'}`}>
-              {pnl >= 0 ? '+' : ''}₹{Math.abs(Math.round(pnl)).toLocaleString('en-IN')}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+              isEntry ? 'bg-[rgba(59,130,246,0.15)] text-[#3b82f6]' : pnl >= 0 ? 'badge-buy' : 'badge-sell'
+            }`}>{action}</span>
+            <span className="font-bold text-sm text-[#e2e8f0]">{trade.ticker as string}</span>
+            <span className="text-xs text-[#64748b]">
+              {trade.quantity as number} × ₹{(trade.price as number)?.toFixed(2)}
             </span>
-          )}
-          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-            (trade.signal as string)?.includes('BUY') ? 'badge-buy' :
-            (trade.signal as string)?.includes('SELL') ? 'badge-sell' : 'badge-hold'
-          }`}>{trade.signal as string}</span>
-          <div onClick={e => e.stopPropagation()}>
-            <AnalyseButton ticker={trade.ticker as string} mode={activeMode} label="Pipeline" size="xs" />
           </div>
-          {expanded ? <ChevronUp size={13} className="text-[#475569]" /> : <ChevronDown size={13} className="text-[#475569]" />}
+          <div className="flex items-center gap-3 shrink-0">
+            {!isEntry && (
+              <span className={`text-sm font-bold ${pnl >= 0 ? 'positive' : 'negative'}`}>
+                {pnl >= 0 ? '+' : ''}₹{Math.abs(Math.round(pnl)).toLocaleString('en-IN')}
+              </span>
+            )}
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+              (trade.signal as string)?.includes('BUY') ? 'badge-buy' :
+              (trade.signal as string)?.includes('SELL') ? 'badge-sell' : 'badge-hold'
+            }`}>{trade.signal as string}</span>
+            <div onClick={e => e.stopPropagation()}>
+              <AnalyseButton ticker={trade.ticker as string} mode={activeMode} label="Pipeline" size="xs" />
+            </div>
+            {expanded ? <ChevronUp size={13} className="text-[#475569]" /> : <ChevronDown size={13} className="text-[#475569]" />}
+          </div>
+        </div>
+
+        {/* Why this trade — visible inline without expanding */}
+        {(trade.why_summary as string) && (
+          <div className="flex items-start gap-1.5 mt-1.5 text-[11px] text-[#94a3b8] leading-snug">
+            <span className="text-[#475569] shrink-0">↳ Why:</span>
+            <span className="font-mono">{trade.why_summary as string}</span>
+          </div>
+        )}
+        <div className="text-[10px] text-[#475569] mt-1">
+          {new Date(trade.executed_at as string).toLocaleString()}
         </div>
       </div>
 

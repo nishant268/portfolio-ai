@@ -48,6 +48,7 @@ class PaperTrade(SQLModel, table=True):
     pnl: float = 0.0               # realised P&L (on sell)
     signal: str = ""               # STRONG_BUY etc.
     reasoning: str = ""            # full AI reasoning
+    why_summary: str = ""          # one-line "why" — shown inline in trade history
     technicals_snapshot: str = "{}"# JSON of RSI/MACD etc at trade time
     executed_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     session_market_view: str = ""  # AI's overall market view for this session
@@ -97,6 +98,18 @@ class PaperTradeAnalysis(SQLModel, table=True):
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
+    # Lightweight in-place migrations for additive columns. SQLite ignores ALTER
+    # TABLE ADD COLUMN if the column exists — but raises OperationalError, so we
+    # catch it. Keeps existing DBs working without a manual reset.
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        for stmt in (
+            "ALTER TABLE papertrade ADD COLUMN why_summary TEXT DEFAULT ''",
+        ):
+            try:
+                conn.exec_driver_sql(stmt)
+            except Exception:
+                pass  # column already exists
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
