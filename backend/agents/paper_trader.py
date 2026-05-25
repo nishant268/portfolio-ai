@@ -74,9 +74,20 @@ TRADER_WATCHLIST = [
 MAX_POSITION_PCT = 0.12       # max 12% of portfolio per stock
 MIN_CASH_PCT = 0.15           # keep at least 15% in cash
 MAX_POSITIONS = 12            # increased from 10
+# Long-horizon defaults (investor mode): wider stop, larger target
 STOP_LOSS_PCT = 0.08
 TAKE_PROFIT_PCT = 0.20
+# Trader mode (short period): tighter stop, faster target — exit quickly on small moves
+TRADER_STOP_LOSS_PCT = 0.03
+TRADER_TAKE_PROFIT_PCT = 0.05
 COOLDOWN_MINUTES = 15         # block re-entry for a ticker for N min after an auto-exit (prevents stop-loss churn)
+
+
+def _sl_tp_for_mode(mode: str) -> tuple[float, float]:
+    """Per-mode stop-loss / take-profit. Trader = short horizon, tighter exits."""
+    if mode == "trader":
+        return TRADER_STOP_LOSS_PCT, TRADER_TAKE_PROFIT_PCT
+    return STOP_LOSS_PCT, TAKE_PROFIT_PCT
 
 
 def _yf_ticker(symbol: str) -> str:
@@ -220,6 +231,7 @@ def _rule_based_decide(
         sent_score, sent_reason = sentiment_analyst(headlines, vix)
         mkt_score, mkt_reason = market_analyst(nifty_pct, nifty_bank_pct, None)
 
+        sl_pct, tp_pct = _sl_tp_for_mode(portfolio.mode)
         decision = make_final_decision(
             ticker=s["ticker"],
             tech=t_score, tech_reason=t_reason,
@@ -229,8 +241,8 @@ def _rule_based_decide(
             mkt=mkt_score, mkt_reason=mkt_reason,
             mode=portfolio.mode,
             price=price,
-            stop_loss_pct=STOP_LOSS_PCT,
-            take_profit_pct=TAKE_PROFIT_PCT,
+            stop_loss_pct=sl_pct,
+            take_profit_pct=tp_pct,
         )
 
         # Record evaluation for every stock (HOLDs too)
@@ -482,12 +494,13 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
         if live_price <= 0:
             continue
 
+        sl_pct, tp_pct = _sl_tp_for_mode(portfolio.mode)
         if action == "SHORT":
-            stop_loss   = float(dec.get("stop_loss",   live_price * (1 + STOP_LOSS_PCT)))
-            take_profit = float(dec.get("take_profit", live_price * (1 - TAKE_PROFIT_PCT)))
+            stop_loss   = float(dec.get("stop_loss",   live_price * (1 + sl_pct)))
+            take_profit = float(dec.get("take_profit", live_price * (1 - tp_pct)))
         else:
-            stop_loss   = float(dec.get("stop_loss",   live_price * (1 - STOP_LOSS_PCT)))
-            take_profit = float(dec.get("take_profit", live_price * (1 + TAKE_PROFIT_PCT)))
+            stop_loss   = float(dec.get("stop_loss",   live_price * (1 - sl_pct)))
+            take_profit = float(dec.get("take_profit", live_price * (1 + tp_pct)))
         full_reasoning = dec.get("reasoning", "")  # rule-based engine already built full reasoning
 
         tech_snapshot = json.dumps({

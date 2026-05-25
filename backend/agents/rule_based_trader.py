@@ -333,15 +333,18 @@ def make_final_decision(
         + mkt  * weights["market"]
     )
 
-    # Decision thresholds — calibrated for typical 5-analyst weighted score range.
-    # ±1.5 = action signal, ±3.5 = strong conviction.
-    if combined >= 3.5:
+    # Decision thresholds — calibrated to take trades ONLY on high-probability
+    # setups (>=25% confidence). Short-period technical-driven setups can still
+    # trigger because trader-mode weights tech at 40%. Low-conviction noise
+    # (combined between -2.5 and +2.5) stays HOLD so the portfolio doesn't
+    # accumulate weak positions.
+    if combined >= 4.0:
         action, signal = "BUY", "STRONG_BUY"
-    elif combined >= 1.5:
+    elif combined >= 2.5:
         action, signal = "BUY", "BUY"
-    elif combined <= -3.5:
+    elif combined <= -4.0:
         action, signal = "SELL", "STRONG_SELL"
-    elif combined <= -1.5:
+    elif combined <= -2.5:
         action, signal = "SELL", "SELL"
     else:
         action, signal = "HOLD", "HOLD"
