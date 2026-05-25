@@ -23,8 +23,9 @@ const fmt    = (n: number) => `₹${Math.abs(n).toLocaleString('en-IN', { maximu
 const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
-function Stat({ label, value, sub, color, icon: Icon }: {
+function Stat({ label, value, sub, color, icon: Icon, valueColor }: {
   label: string; value: string; sub?: string; color: string; icon: React.ElementType;
+  valueColor?: string;
 }) {
   return (
     <div className="card p-4 flex flex-col gap-2">
@@ -34,11 +35,16 @@ function Stat({ label, value, sub, color, icon: Icon }: {
           <Icon size={14} style={{ color }} />
         </div>
       </div>
-      <div className="text-xl font-bold text-[#e2e8f0]">{value}</div>
+      <div className="text-xl font-bold" style={{ color: valueColor ?? '#e2e8f0' }}>{value}</div>
       {sub && <div className="text-xs text-[#64748b]">{sub}</div>}
     </div>
   );
 }
+
+// Tri-state P&L color: green (profit) / red (loss) / white (flat).
+// Pass any number derived from net change; 0 → neutral white.
+const pnlColor = (n: number): string =>
+  n > 0 ? '#00d97e' : n < 0 ? '#ff3d57' : '#e2e8f0';
 
 // ── Session Evaluations panel ─────────────────────────────────────────────────
 // Shows what the rule engine analysed in the most recent session, including
@@ -652,13 +658,32 @@ export default function PaperTradingPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <Stat label="Portfolio Value" value={totalValue > 0 ? fmt(totalValue) : fmt(initCapital)} icon={Wallet} color="#3b82f6"
-            sub={positions.length > 0 ? `${positions.length} positions` : 'All cash'} />
-          <Stat label="Total P&L" value={`${totalPnl >= 0 ? '+' : ''}${fmt(totalPnl)}`} sub={fmtPct(totalPct)}
-            icon={totalPnl >= 0 ? TrendingUp : TrendingDown} color={totalPnl >= 0 ? '#00d97e' : '#ff3d57'} />
+          {/* Portfolio Value — green if profit, red if loss, white if flat */}
+          <Stat
+            label="Portfolio Value"
+            value={totalValue > 0 ? fmt(totalValue) : fmt(initCapital)}
+            icon={Wallet}
+            color={totalPnl > 0 ? '#00d97e' : totalPnl < 0 ? '#ff3d57' : '#3b82f6'}
+            valueColor={pnlColor(totalPnl)}
+            sub={positions.length > 0 ? `${positions.length} positions` : 'All cash'}
+          />
+          <Stat
+            label="Total P&L"
+            value={`${totalPnl > 0 ? '+' : ''}${fmt(totalPnl)}`}
+            sub={fmtPct(totalPct)}
+            icon={totalPnl > 0 ? TrendingUp : totalPnl < 0 ? TrendingDown : Wallet}
+            color={totalPnl > 0 ? '#00d97e' : totalPnl < 0 ? '#ff3d57' : '#64748b'}
+            valueColor={pnlColor(totalPnl)}
+          />
           <Stat label="Cash" value={fmt(cash)} sub={`${((cash / initCapital) * 100).toFixed(0)}% of capital`} icon={Wallet} color="#8b5cf6" />
-          <Stat label="Annualised" value={`${annReturn >= 0 ? '+' : ''}${annReturn.toFixed(1)}%`}
-            sub={`${daysRunning} day${daysRunning !== 1 ? 's' : ''} tracked`} icon={Target} color="#f59e0b" />
+          <Stat
+            label="Annualised"
+            value={`${annReturn > 0 ? '+' : ''}${annReturn.toFixed(1)}%`}
+            sub={`${daysRunning} day${daysRunning !== 1 ? 's' : ''} tracked`}
+            icon={Target}
+            color={annReturn > 0 ? '#00d97e' : annReturn < 0 ? '#ff3d57' : '#f59e0b'}
+            valueColor={pnlColor(annReturn)}
+          />
           <Stat label="Win Rate" value={`${stats?.win_rate ?? 0}%`} sub={`${stats?.wins ?? 0}W / ${stats?.losses ?? 0}L`} icon={Award} color="#00d97e" />
           <Stat label="Sessions Run" value={String(runCount)} sub={`${stats?.total_trades ?? 0} total trades`} icon={BarChart2} color="#64748b" />
         </div>
@@ -707,7 +732,7 @@ export default function PaperTradingPage() {
                 <tbody>
                   {positions.map((p: Record<string, unknown>) => {
                     const pnl = p.unrealized_pnl as number;
-                    const up = pnl >= 0;
+                    const pnlPct = p.unrealized_pnl_pct as number;
                     return (
                       <tr key={p.id as string} className="border-b border-[#0f0f1a] hover:bg-[#0a0a12]">
                         <td className="px-3 py-2 font-bold text-[#e2e8f0]">{p.ticker as string}</td>
@@ -716,8 +741,8 @@ export default function PaperTradingPage() {
                         <td className="px-3 py-2 text-[#94a3b8]">₹{(p.avg_entry_price as number).toFixed(2)}</td>
                         <td className="px-3 py-2 font-medium text-[#e2e8f0]">₹{(p.current_price as number).toFixed(2)}</td>
                         <td className="px-3 py-2 text-[#e2e8f0]">₹{Math.round(p.market_value as number).toLocaleString('en-IN')}</td>
-                        <td className={`px-3 py-2 font-semibold ${up ? 'positive' : 'negative'}`}>{up ? '+' : ''}₹{Math.abs(Math.round(pnl)).toLocaleString('en-IN')}</td>
-                        <td className={`px-3 py-2 font-semibold ${up ? 'positive' : 'negative'}`}>{fmtPct(p.unrealized_pnl_pct as number)}</td>
+                        <td className="px-3 py-2 font-semibold" style={{ color: pnlColor(pnl) }}>{pnl > 0 ? '+' : ''}₹{Math.abs(Math.round(pnl)).toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 font-semibold" style={{ color: pnlColor(pnlPct) }}>{pnlPct > 0 ? '+' : ''}{pnlPct.toFixed(2)}%</td>
                         <td className="px-3 py-2 text-[#ff3d57]">₹{(p.stop_loss as number).toFixed(2)}</td>
                         <td className="px-3 py-2 text-[#00d97e]">₹{(p.take_profit as number).toFixed(2)}</td>
                       </tr>
@@ -792,9 +817,10 @@ export default function PaperTradingPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               {[
                 { label: 'Starting Capital', value: fmt(initCapital) },
-                { label: 'Current Value',    value: fmt(totalValue), color: totalPnl >= 0 ? '#00d97e' : '#ff3d57' },
-                { label: `${daysRunning}-Day Return`, value: fmtPct(totalPct), color: totalPct >= 0 ? '#00d97e' : '#ff3d57' },
-                { label: 'Annualised (proj)', value: `${annReturn >= 0 ? '+' : ''}${annReturn.toFixed(1)}% p.a.`, color: annReturn >= 0 ? '#00d97e' : '#ff3d57' },
+                // Tri-state colour: white when flat (no P&L), green on profit, red on loss
+                { label: 'Current Value',    value: fmt(totalValue), color: pnlColor(totalPnl) },
+                { label: `${daysRunning}-Day Return`, value: `${totalPct > 0 ? '+' : ''}${totalPct.toFixed(2)}%`, color: pnlColor(totalPct) },
+                { label: 'Annualised (proj)', value: `${annReturn > 0 ? '+' : ''}${annReturn.toFixed(1)}% p.a.`, color: pnlColor(annReturn) },
                 { label: 'Total Trades',  value: String(stats?.total_trades ?? 0) },
                 { label: 'Win Rate',      value: `${stats?.win_rate ?? 0}%` },
                 { label: 'Avg Win',       value: fmt((stats?.avg_win as number) ?? 0), color: '#00d97e' },
