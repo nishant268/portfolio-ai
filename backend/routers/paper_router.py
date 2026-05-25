@@ -64,7 +64,7 @@ async def get_portfolio(mode: str):
 
     days_running = len(set(s.date for s in snaps))
 
-    return {
+    return _sanitize_nan({
         "portfolio": p.model_dump(),
         "positions": enriched,
         "snapshots": [s.model_dump() for s in snaps],
@@ -82,7 +82,7 @@ async def get_portfolio(mode: str):
             "best_trade": max((t.pnl for t in trades), default=0),
             "worst_trade": min((t.pnl for t in trades), default=0),
         },
-    }
+    })
 
 
 @router.get("/analysis/{trade_id}")
@@ -118,6 +118,20 @@ async def get_all_analyses(mode: str):
     return {"analyses": result}
 
 
+def _sanitize_nan(v: Any) -> Any:
+    """Replace NaN/Inf (which break JSON) with None — recurses dict/list."""
+    import math
+    if isinstance(v, float):
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return v
+    if isinstance(v, dict):
+        return {k: _sanitize_nan(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_sanitize_nan(x) for x in v]
+    return v
+
+
 @router.get("/trades/{mode}")
 async def get_trade_history(mode: str, limit: int = 500):
     p = get_active_portfolio(mode)
@@ -131,7 +145,7 @@ async def get_trade_history(mode: str, limit: int = 500):
             d["technicals"] = json.loads(t.technicals_snapshot)
         except Exception:
             d["technicals"] = {}
-        result.append(d)
+        result.append(_sanitize_nan(d))
     return {"trades": result}
 
 
