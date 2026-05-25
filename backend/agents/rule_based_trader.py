@@ -333,14 +333,15 @@ def make_final_decision(
         + mkt  * weights["market"]
     )
 
-    # Decision thresholds
-    if combined >= 4.5:
+    # Decision thresholds — calibrated for typical 5-analyst weighted score range.
+    # ±1.5 = action signal, ±3.5 = strong conviction.
+    if combined >= 3.5:
         action, signal = "BUY", "STRONG_BUY"
-    elif combined >= 2.0:
+    elif combined >= 1.5:
         action, signal = "BUY", "BUY"
-    elif combined <= -4.5:
+    elif combined <= -3.5:
         action, signal = "SELL", "STRONG_SELL"
-    elif combined <= -2.0:
+    elif combined <= -1.5:
         action, signal = "SELL", "SELL"
     else:
         action, signal = "HOLD", "HOLD"

@@ -40,6 +40,94 @@ function Stat({ label, value, sub, color, icon: Icon }: {
   );
 }
 
+// ── Session Evaluations panel ─────────────────────────────────────────────────
+// Shows what the rule engine analysed in the most recent session, including
+// the stocks it decided NOT to trade — so the user can see activity even when
+// the session produced 0 trades.
+function SessionEvaluations({ atStatus, runCount }: {
+  atStatus: Record<string, unknown>; runCount: number;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const lastResult = atStatus.last_result as Record<string, unknown> | undefined;
+  const evals = (lastResult?.evaluations as Record<string, unknown>[] | undefined) ?? [];
+  const skipped = (lastResult?.skipped as Record<string, unknown>[] | undefined) ?? [];
+  if (!evals.length) return null;
+
+  const display = showAll ? evals : evals.slice(0, 8);
+  const scoreColor = (s: number) =>
+    s >= 1.5 ? '#00d97e' : s <= -1.5 ? '#ff3d57' : '#64748b';
+  const actionBadge = (action: string) => {
+    if (action === 'BUY') return 'bg-[rgba(0,217,126,0.15)] text-[#00d97e]';
+    if (action === 'SHORT' || action === 'SELL') return 'bg-[rgba(255,61,87,0.15)] text-[#ff3d57]';
+    return 'bg-[#1e1e35] text-[#64748b]';
+  };
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Cpu size={13} className="text-[#8b5cf6]" />
+        <h2 className="font-semibold text-sm text-[#e2e8f0]">Latest Session Evaluations</h2>
+        <span className="text-xs text-[#475569]">
+          {evals.length} stocks analysed · session #{runCount}
+        </span>
+      </div>
+
+      {skipped.length > 0 && (
+        <div className="text-[10px] text-[#f59e0b] mb-2">
+          ⚠ Skipped {skipped.length}: {skipped.map(s => `${s.ticker} (${s.reason})`).join(', ').slice(0, 240)}
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-[#475569] border-b border-[#1e1e35]">
+              <th className="py-1.5 text-left pr-3">Ticker</th>
+              <th className="py-1.5 text-right pr-3">Price</th>
+              <th className="py-1.5 text-center pr-3">Action</th>
+              <th className="py-1.5 text-right pr-3">Score</th>
+              <th className="py-1.5 text-right pr-3">Conf</th>
+              <th className="py-1.5 text-left">Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {display.map((e, i) => {
+              const score = e.combined_score as number;
+              return (
+                <tr key={i} className="border-b border-[#0f0f1a] hover:bg-[#0a0a12]">
+                  <td className="py-1.5 pr-3 font-bold text-[#e2e8f0]">{e.ticker as string}</td>
+                  <td className="py-1.5 pr-3 text-right text-[#94a3b8]">₹{(e.price as number).toFixed(2)}</td>
+                  <td className="py-1.5 pr-3 text-center">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${actionBadge(e.action as string)}`}>
+                      {e.action as string}
+                    </span>
+                  </td>
+                  <td className="py-1.5 pr-3 text-right font-mono font-semibold" style={{ color: scoreColor(score) }}>
+                    {score >= 0 ? '+' : ''}{score.toFixed(2)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right text-[#64748b]">{Math.round((e.confidence as number) * 100)}%</td>
+                  <td className="py-1.5 text-[10px] text-[#64748b] font-mono truncate max-w-md">
+                    {(e.why_summary as string) || '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {evals.length > 8 && (
+        <button
+          onClick={() => setShowAll(s => !s)}
+          className="mt-2 text-[10px] text-[#8b5cf6] hover:text-[#a78bfa]"
+        >
+          {showAll ? '↑ Show top 8' : `↓ Show all ${evals.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Trade entry in live feed ──────────────────────────────────────────────────
 function TradePill({ t }: { t: Record<string, unknown> }) {
   const action  = t.action as string;
@@ -558,6 +646,9 @@ export default function PaperTradingPage() {
             </div>
           </div>
         )}
+
+        {/* Latest session evaluations — every stock the rule engine looked at */}
+        <SessionEvaluations atStatus={atStatus} runCount={runCount} />
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">

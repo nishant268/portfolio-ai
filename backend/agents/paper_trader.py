@@ -83,13 +83,50 @@ def _yf_ticker(symbol: str) -> str:
     return f"{symbol}.NS"
 
 
+# Tiny in-process cache so failed yfinance calls don't keep firing every session.
+# Successful prices are valid for 90 seconds.
+import time as _time
+_price_cache: dict[str, tuple[float, float]] = {}   # ticker -> (price, expires_at)
+_PRICE_TTL_S = 90
+
+
 def _get_live_price(symbol: str) -> float:
-    try:
-        t = yf.Ticker(_yf_ticker(symbol))
-        price = t.fast_info.last_price
-        return float(price) if price else 0.0
-    except Exception:
-        return 0.0
+    """Live price with caching, retry, and NSE fallback when yfinance fails."""
+    now = _time.time()
+    cached = _price_cache.get(symbol)
+    if cached and cached[1] > now:
+        return cached[0]
+
+    # Try yfinance first (fastest)
+    price = 0.0
+    for attempt in range(2):
+        try:
+            t = yf.Ticker(_yf_ticker(symbol))
+            p = t.fast_info.last_price
+            if p and float(p) > 0:
+                price = float(p)
+                break
+        except Exception:
+            pass
+        if attempt == 0:
+            _time.sleep(0.4)   # brief backoff before retry
+
+    # NSE fallback if yfinance didn't return a usable price.
+    # nse._get is synchronous (curl_cffi) so we can call it directly from this
+    # thread-pool worker without spinning up a new event loop.
+    if price <= 0:
+        try:
+            from backend.scrapers.nse import nse
+            data = nse._get(f"/api/quote-equity?symbol={symbol.upper()}")
+            p = (data.get("priceInfo") or {}).get("lastPrice")
+            if p and float(p) > 0:
+                price = float(p)
+        except Exception:
+            pass
+
+    if price > 0:
+        _price_cache[symbol] = (price, now + _PRICE_TTL_S)
+    return price
 
 
 def _get_nifty_price() -> float:
@@ -167,6 +204,7 @@ def _rule_based_decide(
 
     nifty_direction = f"NIFTY {'+' if nifty_pct >= 0 else ''}{nifty_pct:.2f}% | BANK {'+' if nifty_bank_pct >= 0 else ''}{nifty_bank_pct:.2f}% | VIX {vix:.1f}"
     decisions = []
+    all_evaluations: list[dict[str, Any]] = []   # every stock, including HOLDs — for UI visibility
 
     for s in stock_data:
         price = s.get("price", 0)
@@ -195,11 +233,25 @@ def _rule_based_decide(
             take_profit_pct=TAKE_PROFIT_PCT,
         )
 
-        # Only include non-HOLD decisions
+        # Record evaluation for every stock (HOLDs too)
+        all_evaluations.append({
+            "ticker": s["ticker"],
+            "price": round(price, 2),
+            "action": decision["action"],
+            "signal": decision["signal"],
+            "combined_score": decision["combined_score"],
+            "confidence": decision["confidence"],
+            "why_summary": decision.get("why_summary", ""),
+            "scores": decision.get("scores", {}),
+        })
+
+        # Only include non-HOLD decisions for execution
         if decision["action"] != "HOLD":
             decisions.append({**decision, "quantity": _calc_quantity(portfolio, price)})
 
-    # Sort by confidence descending
+    # Sort by absolute score so highest-conviction shows first
+    all_evaluations.sort(key=lambda d: abs(d["combined_score"]), reverse=True)
+    # Sort decisions by confidence descending
     decisions.sort(key=lambda d: d["confidence"], reverse=True)
 
     market_view = (
@@ -208,7 +260,11 @@ def _rule_based_decide(
         f"{'High VIX signals fear — reduce position sizes.' if vix > 20 else 'Normal volatility environment.'}"
     )
 
-    return {"market_view": market_view, "decisions": decisions[:6]}  # top 6 by conviction
+    return {
+        "market_view": market_view,
+        "decisions": decisions[:6],               # top 6 by conviction (for execution)
+        "evaluations": all_evaluations,           # every stock evaluated (for UI)
+    }
 
 
 async def _analyse_trade(
@@ -366,6 +422,7 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
 
     market_view = rule_result.get("market_view", "")
     decisions   = rule_result.get("decisions", [])
+    evaluations = rule_result.get("evaluations", [])
 
     # ── Step 4.5: Build re-entry cooldown map ─────────────────────────────────
     # If a ticker was auto-exited (STOP_LOSS / TAKE_PROFIT) in the last
@@ -596,5 +653,6 @@ async def run_trading_session(mode: str = "investor", initial_capital: float = 1
         "executed_trades": executed_trades,
         "trades_count": len(executed_trades),
         "skipped": skipped,
+        "evaluations": evaluations,
         "active_positions": len(final_positions),
     }
