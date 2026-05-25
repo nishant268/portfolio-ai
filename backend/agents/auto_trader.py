@@ -103,7 +103,7 @@ async def _run_loop(mode: str, interval: int) -> None:
                 _status.last_result = {"status": "analyzing", "mode": mode}
                 result = await run_trading_session(
                     mode=mode,
-                    initial_capital=1_000_000.0,
+                    initial_capital=20_000.0,
                 )
                 _status.run_count += 1
                 _status.last_run_at = datetime.utcnow().isoformat()

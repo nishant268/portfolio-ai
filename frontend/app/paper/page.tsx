@@ -510,8 +510,8 @@ export default function PaperTradingPage() {
   const stats      = data?.stats as Record<string, unknown> | undefined;
   const recentTrades = (atStatus.recent_trades as Record<string, unknown>[]) ?? [];
 
-  const cash         = (portfolio?.cash as number) ?? (portfolio?.initial_capital as number) ?? 1_000_000;
-  const initCapital  = (portfolio?.initial_capital as number) ?? 1_000_000;
+  const cash         = (portfolio?.cash as number) ?? (portfolio?.initial_capital as number) ?? 20_000;
+  const initCapital  = (portfolio?.initial_capital as number) ?? 20_000;
   // portfolio_contribution is signed: positive for long (asset), negative for short (liability)
   const posValue     = positions.reduce((s, p) => {
     const contrib = (p.portfolio_contribution as number);

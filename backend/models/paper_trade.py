@@ -17,8 +17,8 @@ class PaperPortfolio(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     name: str = "AI Paper Portfolio"
     mode: str = "investor"          # investor | trader
-    initial_capital: float = 1_000_000.0   # ₹10 lakhs
-    cash: float = 1_000_000.0
+    initial_capital: float = 20_000.0      # ₹20,000 starting paper capital
+    cash: float = 20_000.0
     is_active: bool = True
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     started_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
@@ -125,7 +125,7 @@ def get_active_portfolio(mode: str) -> PaperPortfolio | None:
         return results[0] if results else None
 
 
-def get_or_create_portfolio(mode: str, initial_capital: float = 1_000_000.0) -> PaperPortfolio:
+def get_or_create_portfolio(mode: str, initial_capital: float = 20_000.0) -> PaperPortfolio:
     p = get_active_portfolio(mode)
     if p:
         return p

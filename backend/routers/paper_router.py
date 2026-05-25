@@ -150,7 +150,7 @@ async def get_trade_history(mode: str, limit: int = 500):
 
 
 @router.post("/run/{mode}")
-async def run_session(mode: str, background_tasks: BackgroundTasks, capital: float = 1_000_000.0):
+async def run_session(mode: str, background_tasks: BackgroundTasks, capital: float = 20_000.0):
     if mode not in ("investor", "trader"):
         raise HTTPException(400, "mode must be investor or trader")
     if mode in _running:

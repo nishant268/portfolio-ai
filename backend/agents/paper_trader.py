@@ -300,17 +300,27 @@ async def _analyse_trade(
 
 
 def _calc_quantity(portfolio: PaperPortfolio, price: float) -> int:
-    """Calculate buy quantity within capital constraints."""
+    """
+    Calculate buy quantity within capital constraints.
+
+    For small portfolios (e.g. ₹20K test mode), a single share of an expensive
+    stock (TCS ₹2300, M&M ₹3500, etc.) might exceed the per-position cap
+    (initial × MAX_POSITION_PCT). In that case we still buy 1 share if the
+    cash reserve allows it — better to take the high-conviction trade than
+    skip it entirely on a small-capital test run.
+    """
     available = portfolio.cash * (1 - MIN_CASH_PCT)
+    if available < price:
+        return 0   # can't even afford 1 share without breaching cash floor
     max_invest = portfolio.initial_capital * MAX_POSITION_PCT
-    invest = min(available, max_invest)
-    qty = int(invest // price)
-    return max(qty, 1) if invest >= price else 0
+    # Allow at least 1 share even when price > max_invest
+    invest = min(available, max(max_invest, price))
+    return int(invest // price)
 
 
 # ── Main trading session ──────────────────────────────────────────────────────
 
-async def run_trading_session(mode: str = "investor", initial_capital: float = 1_000_000.0) -> dict[str, Any]:
+async def run_trading_session(mode: str = "investor", initial_capital: float = 20_000.0) -> dict[str, Any]:
     """
     Full trading session:
     1. Check existing positions for stop-loss / take-profit
